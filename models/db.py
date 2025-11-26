@@ -2,14 +2,15 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from config import Config
 
+
 def get_db():
     """
     PostgreSQL veritabanı bağlantısı kurar.
-    Bağlantı koparsa yeniden bağlanır.
+    psycopg2-binary ile Render’da sorunsuz çalışır.
     """
     try:
         conn = psycopg2.connect(
-            Config.DB_URL,
+            dsn=Config.DB_URL,
             cursor_factory=RealDictCursor
         )
         return conn
