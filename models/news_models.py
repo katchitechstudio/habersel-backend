@@ -16,8 +16,9 @@ def init_news_table():
             gorsel TEXT,
             kaynak TEXT,
             url TEXT UNIQUE NOT NULL,
-            kategori TEXT NOT NULL,
-            tarih TIMESTAMP NOT NULL
+            kategori TEXT,
+            tarih TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW()
         );
     """)
 
