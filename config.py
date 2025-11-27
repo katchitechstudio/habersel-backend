@@ -15,13 +15,7 @@ class Config:
     )
 
     # =============================
-    # CACHE / RSS AYARLARI
+    # HABER AYARLARI
     # =============================
-    CACHE_DURATION_MINUTES = 10      # 10 dakika cache
-    MAX_NEWS_DAYS = 3                # Haberleri 3 gün saklama
-
-    # =============================
-    # SCHEDULER AYARLARI
-    # =============================
-    RSS_UPDATE_INTERVAL = 10         # 10 dakikada bir RSS çek
-    JITTER_MAX_SECONDS = 15          # Bot görünmemesi için gecikme
+    NEWS_UPDATE_INTERVAL = 30   # dakikada bir güncellenecek
+    NEWS_MAX_DAYS = 3           # haberler 3 gün saklanır
