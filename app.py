@@ -78,8 +78,9 @@ def health():
         conn = get_db()
         cur = conn.cursor()
 
-        cur.execute("SELECT COUNT(*) FROM haberler")
-        count = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) AS cnt FROM haberler")
+        row = cur.fetchone()
+        count = row["cnt"] if row else 0
 
         cur.close()
         put_db(conn)
@@ -103,8 +104,8 @@ if __name__ == "__main__":
     # Tabloyu oluştur (Render prod modda da çalışsın)
     try:
         init_news_table()
-    except:
-        pass
+    except Exception as e:
+        print("Tablo init hatası:", e)
 
     # Scheduler başlat
     init_scheduler()
