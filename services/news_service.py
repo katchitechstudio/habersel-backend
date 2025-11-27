@@ -3,7 +3,7 @@ from datetime import datetime
 from models.db import get_db, put_db
 
 # ===============================
-# RSS KAYNAKLARI (4 adet)
+# RSS KAYNAKLARI (6 adet)
 # ===============================
 RSS_FEEDS = [
     "https://www.aa.com.tr/tr/rss/sondakika",
@@ -89,10 +89,10 @@ def fetch_and_save_news():
         except Exception as e:
             print("RSS Hatası:", feed_url, e)
 
-    # 3 GÜNDEN ESKİ HABERLERİ SİL
+    # 3 GÜNDEN ESKİ HABERLERİ SİL — (DÜZELTİLMİŞ SÜRÜM)
     cur.execute("""
         DELETE FROM haberler 
-        WHERE created_at < NOW() - INTERVAL '3 days';
+        WHERE tarih < NOW() - INTERVAL '3 days';
     """)
 
     conn.commit()
