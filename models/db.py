@@ -6,7 +6,7 @@ from config import Config
 def get_db():
     """
     PostgreSQL veritabanı bağlantısı kurar.
-    psycopg2-binary ile Render’da sorunsuz çalışır.
+    Bağlantı koparsa yeniden bağlanır.
     """
     try:
         conn = psycopg2.connect(
@@ -17,6 +17,35 @@ def get_db():
     except Exception as e:
         print("❌ DB bağlantı hatası:", e)
         raise
+
+
+def query_db(query, params=None, fetchone=False):
+    """
+    Sorgu çalıştırmak için yardımcı fonksiyon.
+    Her sorguda cursor oluştur → sorgu çalıştır → cursor kapanır.
+    """
+    conn = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute(query, params or [])
+
+        if fetchone:
+            result = cur.fetchone()
+        else:
+            result = cur.fetchall()
+
+        conn.commit()
+        return result
+
+    except Exception as e:
+        print("❌ Sorgu hatası:", e)
+        raise
+
+    finally:
+        if conn:
+            conn.close()
 
 
 def put_db(conn):
