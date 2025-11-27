@@ -1,188 +1,101 @@
 import feedparser
-import random
-import time
-from datetime import datetime, timedelta
-
+from datetime import datetime
 from models.db import get_db, put_db
 
-# ================================
-# KATEGORİLER
-# ================================
-CATEGORIES = {
-    "general": [
-        "https://www.hurriyet.com.tr/rss/anasayfa",
-        "https://www.milliyet.com.tr/rss/rssnew/anasayfa",
-        "https://www.ntv.com.tr/son-dakika.rss",
-        "https://www.sabah.com.tr/rss/anasayfa.xml",
-        "https://www.cnnturk.com/feed/rss/all/news"
-    ],
-
-    "economy": [
-        "https://www.hurriyet.com.tr/rss/ekonomi",
-        "https://www.ntv.com.tr/ekonomi.rss",
-        "https://www.milliyet.com.tr/rss/rssnew/ekonomi"
-    ],
-
-    "sports": [
-        "https://www.ntvspor.net/rss",
-        "https://www.fanatik.com.tr/rss/anasayfa",
-        "https://www.trtspor.com.tr/rss/anasayfa.rss"
-    ],
-
-    "technology": [
-        "https://www.donanimhaber.com/rss/tum",
-        "https://www.webtekno.com/rss.xml"
-    ],
-
-    "magazine": [
-        "https://www.sozcu.com.tr/rss/magazin.xml",
-        "https://www.hurriyet.com.tr/rss/kelebek"
-    ],
-
-    "world": [
-        "https://www.ntv.com.tr/dunya.rss",
-        "https://www.trthaber.com/rss/dunya.rss"
-    ]
-}
-
-ALL_CATEGORIES = list(CATEGORIES.keys())
+# ===============================
+# RSS KAYNAKLARI (4 adet)
+# ===============================
+RSS_FEEDS = [
+    "https://www.aa.com.tr/tr/rss/sondakika",
+    "https://www.aa.com.tr/tr/rss/ekonomi",
+    "https://www.trthaber.com/rss/sondakika.rss",
+    "https://www.trthaber.com/rss/ekonomi.rss",
+    "https://www.bbc.com/turkce/index.xml",
+    "https://www.bloomberght.com/rss"
+]
 
 
-# ================================
-# CACHE SİSTEMİ
-# ================================
-news_cache = {}          # {"general": [...], "sports": [...]} 
-cache_timestamp = {}     # {"general": datetime, ...}
-
-CACHE_DURATION_MINUTES = 10
-
-
-def get_cached_news(category):
-    """Kategori cache süresini kontrol eder, yeniyse direkt cache döner."""
-    now = datetime.now()
-
-    if (category in news_cache and 
-        category in cache_timestamp and 
-        now - cache_timestamp[category] < timedelta(minutes=CACHE_DURATION_MINUTES)):
-        return news_cache.get(category, [])
-
-    # Cache süresi dolmuş → yeni RSS çek
-    fetch_category_news(category)
-    return news_cache.get(category, [])
-
-
-# ================================
-# HABER NORMALİZE FONKSİYONU
-# ================================
-def normalize_entry(entry):
-    """RSS item'ı tek formatta normalize eder."""
+# ===============================
+# HABERİ TEK FORMATTA NORMALİZE ET
+# ===============================
+def normalize(entry, source_title):
     title = entry.get("title", "").strip()
-    desc = entry.get("summary", "").strip()
-    link = entry.get("link", "")
-    published = entry.get("published", datetime.now().isoformat())
-    source = entry.get("source", {}).get("title", "")
+    description = entry.get("summary", "").strip()
+    link = entry.get("link", "").strip()
 
-    # Görsel bulmaya çalışma
+    # Yayın tarihini al
+    published = entry.get("published", None)
+    try:
+        published_date = datetime(*entry.published_parsed[:6])
+    except:
+        published_date = datetime.now()
+
+    # Görsel bul (opsiyonel)
     image = ""
-    if "media_thumbnail" in entry and entry.media_thumbnail:
-        image = entry.media_thumbnail[0]["url"]
-    elif "media_content" in entry and entry.media_content:
-        image = entry.media_content[0]["url"]
+    if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
+        image = entry.media_thumbnail[0].get("url", "")
+    elif hasattr(entry, "media_content") and entry.media_content:
+        image = entry.media_content[0].get("url", "")
 
     return {
-        "title": title,
-        "description": desc,
+        "baslik": title,
+        "aciklama": description,
         "url": link,
-        "image": image,
-        "source": source,
-        "publishedAt": published
+        "gorsel": image,
+        "kaynak": source_title,
+        "tarih": published_date
     }
 
 
-# ================================
-# BİR KATEGORİYİ RSS İLE ÇEK
-# ================================
-def fetch_category_news(category):
-    rss_list = CATEGORIES.get(category, [])
-    merged_news = []
+# ===============================
+# RSS VERİLERİNİ ÇEK + DB'YE KAYDET
+# ===============================
+def fetch_and_save_news():
+    conn = get_db()
+    cur = conn.cursor()
 
-    for rss_url in rss_list:
+    new_count = 0
+
+    for feed_url in RSS_FEEDS:
         try:
-            d = feedparser.parse(rss_url)
+            feed = feedparser.parse(feed_url)
+            source_title = feed.feed.get("title", "Bilinmeyen Kaynak")
 
-            for entry in d.entries:
-                merged_news.append(normalize_entry(entry))
+            for entry in feed.entries:
+                item = normalize(entry, source_title)
+
+                # Duplicate ENGELLEME
+                cur.execute("SELECT id FROM haberler WHERE url=%s", (item["url"],))
+                exists = cur.fetchone()
+
+                if exists:
+                    continue  # Aynı haber varsa geç
+
+                # Yeni haber → DB'ye ekle
+                cur.execute("""
+                    INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, tarih)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    item["baslik"],
+                    item["aciklama"],
+                    item["gorsel"],
+                    item["kaynak"],
+                    item["url"],
+                    item["tarih"]
+                ))
+
+                new_count += 1
 
         except Exception as e:
-            print(f"RSS Hatası ({rss_url}): {e}")
+            print("RSS Hatası:", feed_url, e)
 
-    # En yeni haber üstte
-    merged_news = sorted(
-        merged_news,
-        key=lambda x: x.get("publishedAt", ""),
-        reverse=True
-    )
+    # 3 GÜNDEN ESKİ HABERLERİ SİL
+    cur.execute("""
+        DELETE FROM haberler 
+        WHERE created_at < NOW() - INTERVAL '3 days';
+    """)
 
-    # CACHE'E YAZ
-    news_cache[category] = merged_news
-    cache_timestamp[category] = datetime.now()
+    conn.commit()
+    put_db(conn)
 
-    # DB'ye de kaydet (3 gün saklama)
-    save_news_to_db(category, merged_news)
-
-    return len(merged_news)
-
-
-# ================================
-# TÜM KATEGORİLERİ ÇEK
-# ================================
-def fetch_all_news():
-    total = 0
-
-    # Jitter → 0–15 saniye gecikme
-    delay = random.randint(0, 15)
-    print(f"Jitter: {delay} saniye")
-    time.sleep(delay)
-
-    for category in ALL_CATEGORIES:
-        total += fetch_category_news(category)
-
-    return total
-
-
-# ================================
-# DB'YE HABER KAYDET (3 gün sakla)
-# ================================
-def save_news_to_db(category, news_list):
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-
-        # 3 günden eski haberleri sil
-        cur.execute("""
-            DELETE FROM haberler 
-            WHERE tarih < NOW() - INTERVAL '3 days';
-        """)
-
-        # Yeni haberleri ekle
-        for item in news_list:
-            cur.execute("""
-                INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori, tarih)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (url) DO NOTHING;
-            """, (
-                item["title"],
-                item["description"],
-                item["image"],
-                item["source"],
-                item["url"],
-                category,
-                item["publishedAt"]
-            ))
-
-        conn.commit()
-        cur.close()
-        put_db(conn)
-
-    except Exception as e:
-        print("DB Kayıt Hatası:", e)
+    return new_count
