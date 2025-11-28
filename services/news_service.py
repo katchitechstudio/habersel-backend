@@ -7,52 +7,38 @@ import re
 from urllib.parse import urlparse, urljoin
 
 # ===============================
-# ÇALIŞAN + YENİ PREMIUM RSS KAYNAKLARI
+# ÇALIŞAN RSS KAYNAKLARI + GZT
 # ===============================
 RSS_FEEDS = {
+    # GZT - YENİ EKLENEN (Yüksek Kalite)
+    "GZT Genel": "https://www.gzt.com/rss",
+    "GZT Gündem": "https://www.gzt.com/rss/gundem",
+    "GZT Dünya": "https://www.gzt.com/rss/dunya",
+    "GZT Teknoloji": "https://www.gzt.com/rss/teknoloji",
+    "GZT Spor": "https://www.gzt.com/rss/spor",
+    
     # GENEL HABER - Yüksek Kalite (ÇALIŞAN)
     "BBC Türkçe": "https://www.bbc.com/turkce/index.xml",
     "Habertürk": "https://www.haberturk.com/rss",
     "CNN Türk": "https://www.cnnturk.com/feed/rss/news",
     "Sözcü": "https://www.sozcu.com.tr/rss/",
     "Hürriyet": "https://www.hurriyet.com.tr/rss/anasayfa",
-    "Milliyet Gündem": "https://www.milliyet.com.tr/rss/rssnew/gundemrss.xml",
-    
-    # YENİ EKLENDİ - YÜKSEK GÖRSELLİ
     "Cumhuriyet": "https://www.cumhuriyet.com.tr/rss/son_dakika.xml",
     "Sabah": "https://www.sabah.com.tr/rss/anasayfa.xml",
     "Posta": "https://www.posta.com.tr/rss/anasayfa.xml",
     "Yeni Şafak": "https://www.yenisafak.com/Rss",
-    "Star": "https://www.star.com.tr/rss.xml",
     
-    # EKONOMİ - Görsel Ağırlıklı (ÇALIŞAN)
+    # EKONOMİ
     "Bloomberg HT": "https://www.bloomberght.com/rss",
     "Para Analiz": "https://www.paraanaliz.com/feed/",
     
-    # YENİ EKONOMİ
-    "Ekonomim": "https://www.ekonomim.com/rss/news.xml",
-    "Dünya Gazetesi": "https://www.dunya.com/service/rss.php",
-    
-    # SPOR - YENİ KAYNAKLAR
-    "Sporx": "https://www.sporx.com/rss",
-    "A Spor": "https://www.aspor.com.tr/rss",
-    "Haber Spor": "https://www.haberspor.com/rss",
-    
-    # TEKNOLOJİ - Premium Görseller (ÇALIŞAN)
+    # TEKNOLOJİ
     "WebTekno": "https://www.webtekno.com/rss.xml",
     "ShiftDelete": "https://shiftdelete.net/feed",
-    
-    # YENİ TEKNOLOJİ
     "TeknoLog": "https://teknolog.com/feed/",
-    "Teknolojioku": "https://www.teknolojioku.com/feed/",
     
-    # DÜNYA HABERLERİ
+    # DÜNYA
     "Euronews Türkçe": "https://tr.euronews.com/rss",
-    "DW Türkçe": "https://www.dw.com/rss/rss-tur-all/rss.xml",
-    
-    # YAŞAM & SAĞLIK
-    "Mynet Yaşam": "https://www.mynet.com/rss/yasam",
-    "WebMD (TR)": "https://www.webmd.com/rss/rss.aspx?RSSSource=RSS_PUBLIC",
 }
 
 # ===============================
@@ -64,37 +50,31 @@ def extract_high_quality_image(entry, feed_url, source_name):
     """
     image_url = ""
     
-    # 1. RSS Media Tags (En Hızlı ve Güvenilir)
+    # 1. RSS Media Tags
     if hasattr(entry, "media_content") and entry.media_content:
-        # En büyük çözünürlüklü görseli seç
         images = [m for m in entry.media_content if "image" in m.get("type", "")]
         if images:
-            # Width'e göre sırala
             images.sort(key=lambda x: int(x.get("width", 0)), reverse=True)
             image_url = images[0].get("url", "")
     
     if not image_url and hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
         thumbnails = entry.media_thumbnail
         if thumbnails:
-            # En büyük thumbnail'i al
             thumbnails.sort(key=lambda x: int(x.get("width", 0)), reverse=True)
             image_url = thumbnails[0].get("url", "")
     
-    # 2. Enclosures (Podcast/Video görselleri)
+    # 2. Enclosures
     if not image_url and hasattr(entry, "enclosures") and entry.enclosures:
         for enc in entry.enclosures:
             if "image" in enc.get("type", "").lower():
                 image_url = enc.get("href", "")
                 break
     
-    # 3. İçerik içinden görsel ara (HTML parsing)
+    # 3. İçerik içinden görsel ara
     if not image_url:
-        content = entry.get("summary", "") or entry.get("description", "") or entry.get("content", [{}])[0].get("value", "")
-        
-        # img src bul
+        content = entry.get("summary", "") or entry.get("description", "")
         img_matches = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', content, re.IGNORECASE)
         if img_matches:
-            # İlk büyük görseli al (data:image hariç)
             for img in img_matches:
                 if not img.startswith("data:"):
                     image_url = img
@@ -102,32 +82,17 @@ def extract_high_quality_image(entry, feed_url, source_name):
     
     # 4. URL Düzeltmeleri
     if image_url:
-        # Protocol ekle
         if image_url.startswith("//"):
             image_url = "https:" + image_url
-        # Relative URL'leri absolute yap
         elif image_url.startswith("/"):
             parsed = urlparse(feed_url)
             image_url = f"{parsed.scheme}://{parsed.netloc}{image_url}"
-        # Query parametrelerini temizle (bazı siteler boyut parametresi ekler)
-        if "?" in image_url and any(x in image_url for x in ["w=", "h=", "size="]):
-            base_url = image_url.split("?")[0]
-            # Eğer düşük çözünürlük parametresi varsa kaldır
-            if any(x in image_url for x in ["w=100", "w=200", "w=300", "thumb", "small"]):
-                image_url = base_url
     
     # 5. Kalite Kontrolü
     if image_url:
-        # Çok küçük görselleri reddet
-        if any(x in image_url.lower() for x in ["1x1", "pixel", "tracking", "beacon"]):
+        if any(x in image_url.lower() for x in ["1x1", "pixel", "tracking", "beacon", "logo", "icon"]):
             return ""
-        
-        # Data URI'leri reddet
         if image_url.startswith("data:"):
-            return ""
-        
-        # Sosyal medya ikonlarını reddet
-        if any(x in image_url.lower() for x in ["facebook", "twitter", "instagram", "logo", "icon"]):
             return ""
     
     return image_url
@@ -176,11 +141,11 @@ def normalize(entry, source_name, feed_url):
         "gorsel": image,
         "kaynak": source_name,
         "tarih": published_date,
-        "has_image": bool(image)  # Görsel var mı kontrolü
+        "has_image": bool(image)
     }
 
 # ===============================
-# RSS VERİLERİNİ ÇEK + KAYDET
+# RSS VERİLERİNİ ÇEK + KAYDET (DÜZELTİLMİŞ)
 # ===============================
 def fetch_and_save_news():
     """
@@ -214,7 +179,7 @@ def fetch_and_save_news():
             source_new = 0
             source_images = 0
             
-            # Her kaynaktan max 8 haber al (performans için)
+            # Her kaynaktan max 8 haber al
             for entry in feed.entries[:8]:
                 try:
                     item = normalize(entry, source_name, feed_url)
@@ -227,33 +192,45 @@ def fetch_and_save_news():
                     if len(item["baslik"]) < 10:
                         continue
                     
-                    # URL duplicate kontrolü
+                    # 🔥 DÜZELTME: URL duplicate kontrolü
                     cur.execute("SELECT id FROM haberler WHERE url = %s", (item["url"],))
                     if cur.fetchone():
                         continue
                     
-                    # Veritabanına ekle
-                    cur.execute("""
-                        INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, tarih)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                    """, (
-                        item["baslik"],
-                        item["aciklama"],
-                        item["gorsel"],
-                        item["kaynak"],
-                        item["url"],
-                        item["tarih"]
-                    ))
+                    # 🔥 DÜZELTME: Veritabanına ekle - Her insert kendi transaction'ında
+                    try:
+                        cur.execute("""
+                            INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, tarih)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (url) DO NOTHING
+                        """, (
+                            item["baslik"],
+                            item["aciklama"],
+                            item["gorsel"],
+                            item["kaynak"],
+                            item["url"],
+                            item["tarih"]
+                        ))
+                        
+                        # 🔥 DÜZELTME: Her insert'ten sonra commit
+                        conn.commit()
+                        
+                        source_new += 1
+                        new_count += 1
+                        
+                        if item["has_image"]:
+                            source_images += 1
+                            total_with_images += 1
                     
-                    source_new += 1
-                    new_count += 1
-                    
-                    if item["has_image"]:
-                        source_images += 1
-                        total_with_images += 1
+                    except Exception as insert_error:
+                        # 🔥 DÜZELTME: Hata olursa rollback yap
+                        conn.rollback()
+                        print(f"⚠️ Insert hatası ({source_name}): {str(insert_error)[:60]}")
+                        continue
                 
                 except Exception as e:
-                    print(f"⚠️ Haber işleme hatası ({source_name}): {e}")
+                    conn.rollback()
+                    print(f"⚠️ Haber işleme hatası ({source_name}): {str(e)[:60]}")
                     continue
             
             if source_new > 0:
@@ -263,15 +240,20 @@ def fetch_and_save_news():
             print(f"❌ {source_name}: {str(e)[:50]}")
             failed_feeds.append(source_name)
     
-    # Eski haberleri temizle (3 günden eski)
-    cur.execute("""
-        DELETE FROM haberler 
-        WHERE tarih < NOW() - INTERVAL '3 days';
-    """)
-    deleted_count = cur.rowcount
+    # 🔥 DÜZELTME: Eski haberleri temizle - Ayrı transaction
+    try:
+        cur.execute("""
+            DELETE FROM haberler 
+            WHERE tarih < NOW() - INTERVAL '3 days';
+        """)
+        deleted_count = cur.rowcount
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"⚠️ Temizlik hatası: {e}")
+        deleted_count = 0
     
-    # Değişiklikleri kaydet
-    conn.commit()
+    # Connection'ı kapat
     put_db(conn)
     
     # Özet rapor
