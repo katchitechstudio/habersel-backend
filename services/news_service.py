@@ -7,48 +7,52 @@ import re
 from urllib.parse import urlparse, urljoin
 
 # ===============================
-# PREMİUM RSS KAYNAKLARI (20+ adet)
-# Sadece yüksek kaliteli görsel veren kaynaklar
+# ÇALIŞAN + YENİ PREMIUM RSS KAYNAKLARI
 # ===============================
 RSS_FEEDS = {
-    # GENEL HABER - Yüksek Kalite
-    "AA (Genel)": "https://www.aa.com.tr/tr/rss/default",
-    "TRT Haber": "https://www.trthaber.com/rss/sondakika.rss",
+    # GENEL HABER - Yüksek Kalite (ÇALIŞAN)
     "BBC Türkçe": "https://www.bbc.com/turkce/index.xml",
     "Habertürk": "https://www.haberturk.com/rss",
     "CNN Türk": "https://www.cnnturk.com/feed/rss/news",
-    "NTV": "https://www.ntv.com.tr/rss",
     "Sözcü": "https://www.sozcu.com.tr/rss/",
     "Hürriyet": "https://www.hurriyet.com.tr/rss/anasayfa",
-    "Milliyet": "https://www.milliyet.com.tr/rss/rssnew/gundemrss.xml",
+    "Milliyet Gündem": "https://www.milliyet.com.tr/rss/rssnew/gundemrss.xml",
     
-    # EKONOMİ - Görsel Ağırlıklı
-    "AA Ekonomi": "https://www.aa.com.tr/tr/rss/ekonomi",
-    "TRT Ekonomi": "https://www.trthaber.com/rss/ekonomi.rss",
+    # YENİ EKLENDİ - YÜKSEK GÖRSELLİ
+    "Cumhuriyet": "https://www.cumhuriyet.com.tr/rss/son_dakika.xml",
+    "Sabah": "https://www.sabah.com.tr/rss/anasayfa.xml",
+    "Posta": "https://www.posta.com.tr/rss/anasayfa.xml",
+    "Yeni Şafak": "https://www.yenisafak.com/Rss",
+    "Star": "https://www.star.com.tr/rss.xml",
+    
+    # EKONOMİ - Görsel Ağırlıklı (ÇALIŞAN)
     "Bloomberg HT": "https://www.bloomberght.com/rss",
-    "Dünya": "https://www.dunya.com/service/rss.php",
     "Para Analiz": "https://www.paraanaliz.com/feed/",
     
-    # SPOR - Yüksek Görsel Kalitesi
-    "AA Spor": "https://www.aa.com.tr/tr/rss/spor",
-    "TRT Spor": "https://www.trthaber.com/rss/spor.rss",
-    "Fanatik": "https://www.fanatik.com.tr/rss",
-    "Fotomaç": "https://www.fotomac.com.tr/rss",
-    "NTV Spor": "https://www.ntvspor.net/rss",
+    # YENİ EKONOMİ
+    "Ekonomim": "https://www.ekonomim.com/rss/news.xml",
+    "Dünya Gazetesi": "https://www.dunya.com/service/rss.php",
     
-    # TEKNOLOJİ - Premium Görseller
+    # SPOR - YENİ KAYNAKLAR
+    "Sporx": "https://www.sporx.com/rss",
+    "A Spor": "https://www.aspor.com.tr/rss",
+    "Haber Spor": "https://www.haberspor.com/rss",
+    
+    # TEKNOLOJİ - Premium Görseller (ÇALIŞAN)
     "WebTekno": "https://www.webtekno.com/rss.xml",
     "ShiftDelete": "https://shiftdelete.net/feed",
-    "Donanım Haber": "https://www.donanimhaber.com/rss",
-    "Chip Online": "https://www.chip.com.tr/rss/haber.xml",
     
-    # DÜNYA - Global Haberler
-    "AA Dünya": "https://www.aa.com.tr/tr/rss/dunya",
-    "TRT Dünya": "https://www.trthaber.com/rss/dunya.rss",
+    # YENİ TEKNOLOJİ
+    "TeknoLog": "https://teknolog.com/feed/",
+    "Teknolojioku": "https://www.teknolojioku.com/feed/",
+    
+    # DÜNYA HABERLERİ
+    "Euronews Türkçe": "https://tr.euronews.com/rss",
+    "DW Türkçe": "https://www.dw.com/rss/rss-tur-all/rss.xml",
     
     # YAŞAM & SAĞLIK
-    "AA Yaşam": "https://www.aa.com.tr/tr/rss/yasam",
-    "TRT Yaşam": "https://www.trthaber.com/rss/yasam.rss",
+    "Mynet Yaşam": "https://www.mynet.com/rss/yasam",
+    "WebMD (TR)": "https://www.webmd.com/rss/rss.aspx?RSSSource=RSS_PUBLIC",
 }
 
 # ===============================
@@ -96,28 +100,7 @@ def extract_high_quality_image(entry, feed_url, source_name):
                     image_url = img
                     break
     
-    # 4. KAYNAK ÖZEL ÇÖZÜMLER
-    if not image_url:
-        # AA için özel parsing
-        if "aa.com.tr" in feed_url:
-            if hasattr(entry, "id"):
-                # AA'nın görsel URL pattern'i
-                news_id = entry.id.split("/")[-1] if "/" in entry.id else ""
-                if news_id:
-                    image_url = f"https://cdnuploads.aa.com.tr/uploads/Contents/2024/{news_id[:2]}/{news_id}/thumbs_b_c_{news_id}.jpg"
-        
-        # TRT için özel parsing
-        elif "trthaber.com" in feed_url:
-            link = entry.get("link", "")
-            if link:
-                # TRT'nin görsel pattern'i
-                parts = link.split("-")
-                if parts:
-                    news_id = parts[-1].replace(".html", "")
-                    if news_id.isdigit():
-                        image_url = f"https://trthaberstatic.cdn.wp.trt.com.tr/resimler/{news_id[:3]}000/{news_id}-16x9.jpg"
-    
-    # 5. URL Düzeltmeleri
+    # 4. URL Düzeltmeleri
     if image_url:
         # Protocol ekle
         if image_url.startswith("//"):
@@ -127,50 +110,13 @@ def extract_high_quality_image(entry, feed_url, source_name):
             parsed = urlparse(feed_url)
             image_url = f"{parsed.scheme}://{parsed.netloc}{image_url}"
         # Query parametrelerini temizle (bazı siteler boyut parametresi ekler)
-        # Örn: image.jpg?w=100 → image.jpg
         if "?" in image_url and any(x in image_url for x in ["w=", "h=", "size="]):
             base_url = image_url.split("?")[0]
             # Eğer düşük çözünürlük parametresi varsa kaldır
             if any(x in image_url for x in ["w=100", "w=200", "w=300", "thumb", "small"]):
                 image_url = base_url
     
-    # 6. Son Çare: Haber Sayfasından Çek (Yavaş ama Etkili)
-    # NOT: Sadece çok önemli kaynaklarda kullan
-    if not image_url and source_name in ["BBC Türkçe", "Bloomberg HT", "Hürriyet"]:
-        link = entry.get("link", "")
-        if link:
-            try:
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
-                response = requests.get(link, timeout=5, headers=headers)
-                
-                if response.status_code == 200:
-                    soup = BeautifulSoup(response.text, "html.parser")
-                    
-                    # Open Graph Image (En güvenilir)
-                    og_image = soup.find("meta", property="og:image")
-                    if og_image and og_image.get("content"):
-                        image_url = og_image["content"]
-                    
-                    # Twitter Card
-                    if not image_url:
-                        twitter_img = soup.find("meta", attrs={"name": "twitter:image"})
-                        if twitter_img and twitter_img.get("content"):
-                            image_url = twitter_img["content"]
-                    
-                    # Article içindeki ilk büyük görsel
-                    if not image_url:
-                        article = soup.find("article") or soup.find("div", class_=re.compile("content|article|post"))
-                        if article:
-                            img = article.find("img", attrs={"width": True})
-                            if img and int(img.get("width", 0)) > 400:
-                                image_url = img.get("src") or img.get("data-src")
-                                
-            except Exception as e:
-                print(f"⚠️ Sayfa görsel çekme hatası ({source_name}): {e}")
-    
-    # 7. Kalite Kontrolü
+    # 5. Kalite Kontrolü
     if image_url:
         # Çok küçük görselleri reddet
         if any(x in image_url.lower() for x in ["1x1", "pixel", "tracking", "beacon"]):
