@@ -1,20 +1,19 @@
-import psycopg
-from psycopg.rows import dict_row
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from config import Config
 
 
 def get_db():
     """
-    PostgreSQL veritabanı bağlantısı (psycopg3).
-    dict_row sayesinde sonuçlar JSON-friendly dict olarak döner.
+    PostgreSQL veritabanı bağlantısı kurar.
+    Otomatik reconnect destekler.
     """
     try:
-        conn = psycopg.connect(
+        conn = psycopg2.connect(
             Config.DB_URL,
-            row_factory=dict_row
+            cursor_factory=RealDictCursor
         )
         return conn
-
     except Exception as e:
         print("❌ DB bağlantı hatası:", e)
         raise
@@ -22,7 +21,7 @@ def get_db():
 
 def put_db(conn):
     """
-    Veritabanı bağlantısını kapatır.
+    Açık bağlantıyı güvenli şekilde kapatır.
     """
     try:
         if conn:
