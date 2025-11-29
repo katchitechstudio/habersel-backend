@@ -1,68 +1,96 @@
+from datetime import datetime, timedelta
+from config import Config
 from models.db import get_db, put_db
 
-def init_news_table():
-    """
-    Haberler tablosunu oluşturur.
-    Eğer tablo yoksa otomatik olarak ekler.
-    """
-    conn = get_db()
-    cur = conn.cursor()
-    
-    # 1. Tabloyu oluştur (eğer yoksa)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS haberler (
-            id SERIAL PRIMARY KEY,
-            baslik TEXT NOT NULL,
-            aciklama TEXT,
-            gorsel TEXT,
-            kaynak TEXT,
-            url TEXT UNIQUE NOT NULL,
-            kategori TEXT,
-            tarih TIMESTAMP,
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-    """)
-    
-    # 2. Eski UNIQUE constraint'i kaldır (eğer varsa)
-    try:
+
+class NewsModel:
+
+    @staticmethod
+    def create_table():
+        """
+        Haber tablosu yoksa oluşturur.
+        UNIQUE(title, url) → Aynı haberin tekrar eklenmesini engeller.
+        """
+        conn = get_db()
+        cur = conn.cursor()
+
         cur.execute("""
-            ALTER TABLE haberler DROP CONSTRAINT IF EXISTS haberler_baslik_key;
+            CREATE TABLE IF NOT EXISTS news (
+                id SERIAL PRIMARY KEY,
+                category VARCHAR(50),
+                title TEXT,
+                description TEXT,
+                url TEXT,
+                image TEXT,
+                source VARCHAR(50),
+                published TIMESTAMP,
+                saved_at TIMESTAMP DEFAULT NOW(),
+                expires_at TIMESTAMP,
+                CONSTRAINT unique_news UNIQUE (title, url)
+            );
         """)
-        print("✅ Başlık UNIQUE constraint'i kaldırıldı")
-    except Exception as e:
-        print(f"⚠️ Constraint kaldırma hatası (normal olabilir): {e}")
-    
-    # 3. URL UNIQUE constraint'i ekle (eğer yoksa)
-    try:
+
+        conn.commit()
+        put_db(conn)
+
+    @staticmethod
+    def save_article(article: dict, category: str):
+        """
+        Tek bir haberi veritabanına kaydeder.
+        Duplicate olursa hata fırlatmaz → yok sayar.
+        """
+        conn = get_db()
+        cur = conn.cursor()
+
+        expires = datetime.utcnow() + timedelta(days=Config.NEWS_EXPIRATION_DAYS)
+
+        try:
+            cur.execute("""
+                INSERT INTO news (category, title, description, url, image, source, published, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (title, url) DO NOTHING;
+            """, (
+                category,
+                article.get("title"),
+                article.get("description"),
+                article.get("url"),
+                article.get("image"),
+                article.get("source"),
+                datetime.utcnow(),
+                expires
+            ))
+        except Exception as e:
+            print("❌ Haber kaydedilemedi:", e)
+        finally:
+            conn.commit()
+            put_db(conn)
+
+    @staticmethod
+    def delete_expired():
+        """ Süresi geçmiş haberleri siler. """
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("DELETE FROM news WHERE expires_at < NOW();")
+
+        conn.commit()
+        put_db(conn)
+
+    @staticmethod
+    def get_by_category(category: str, limit: int = 50):
+        """ Android uygulamasına dönecek haberleri getirir. """
+        conn = get_db()
+        cur = conn.cursor()
+
         cur.execute("""
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_constraint 
-                    WHERE conname = 'haberler_url_key'
-                ) THEN
-                    ALTER TABLE haberler ADD CONSTRAINT haberler_url_key UNIQUE (url);
-                END IF;
-            END $$;
-        """)
-        print("✅ URL UNIQUE constraint'i eklendi")
-    except Exception as e:
-        print(f"⚠️ URL constraint ekleme hatası: {e}")
-    
-    # 4. Index'leri oluştur (performans için)
-    try:
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_haberler_tarih ON haberler(tarih DESC);
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_haberler_kaynak ON haberler(kaynak);
-        """)
-        print("✅ Index'ler oluşturuldu")
-    except Exception as e:
-        print(f"⚠️ Index oluşturma hatası: {e}")
-    
-    conn.commit()
-    cur.close()
-    put_db(conn)
-    
-    print("🗂️ Haberler tablosu hazır (haberler).")
+            SELECT id, category, title, description, url, image, source, published
+            FROM news
+            WHERE category = %s
+            ORDER BY saved_at DESC
+            LIMIT %s;
+        """, (category, limit))
+
+        rows = cur.fetchall()
+        put_db(conn)
+
+        return rows
