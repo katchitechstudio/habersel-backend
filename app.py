@@ -261,6 +261,44 @@ def create_app():
             }), 500
     
     # -----------------------
+    # 🆕 API Kullanım İstatistikleri (YENİ!)
+    # -----------------------
+    @app.route("/api/usage", methods=["GET"])
+    def api_usage_stats():
+        """
+        API limitlerinin kullanım durumunu gösterir
+        
+        Response:
+        {
+            "apis": {
+                "gnews": {"limit": 100, "used": 45, "remaining": 55, ...},
+                "currents": {...}
+            },
+            "summary": {
+                "total_requests_made": 78,
+                "total_daily_limit": 133,
+                ...
+            }
+        }
+        """
+        try:
+            from services.api_manager import get_all_usage, get_daily_summary
+            
+            return jsonify({
+                "success": True,
+                "timestamp": datetime.now(pytz.timezone(Config.TIMEZONE)).isoformat(),
+                "apis": get_all_usage(),
+                "summary": get_daily_summary()
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"❌ /api/usage hatası: {e}")
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 500
+    
+    # -----------------------
     # Manuel Görev Tetikleme (Sadece Development)
     # -----------------------
     @app.route("/trigger/<task_name>", methods=["POST"])
@@ -315,7 +353,8 @@ def create_app():
                 "/cron?key=YOUR_SECRET",
                 "/news",
                 "/news?category=technology",
-                "/news/stats"
+                "/news/stats",
+                "/api/usage"  # 🆕 YENİ!
             ]
         }), 404
     
