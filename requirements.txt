@@ -1,5 +1,63 @@
+# -----------------------
+# Flask & Web Framework
+# -----------------------
 Flask==3.0.0
+Flask-CORS==4.0.0
+
+# -----------------------
+# Veritabanı
+# -----------------------
 psycopg2-binary==2.9.9
+SQLAlchemy==2.0.23
+
+# -----------------------
+# HTTP İstekleri
+# -----------------------
 requests==2.31.0
+
+# -----------------------
+# Çevre Değişkenleri
+# -----------------------
 python-dotenv==1.0.0
+
+# -----------------------
+# Duplicate Filter (Başlık Benzerliği)
+# -----------------------
 rapidfuzz==3.5.2
+
+# -----------------------
+# Zaman Dilimi İşlemleri
+# -----------------------
+pytz==2023.3
+
+# -----------------------
+# Cache (Opsiyonel - Redis kullanmak istersen)
+# -----------------------
+# redis==5.0.1
+# flask-caching==2.1.0
+
+# -----------------------
+# Loglama (İyileştirilmiş)
+# -----------------------
+colorlog==6.8.0
+
+# -----------------------
+# Güvenlik & Rate Limiting
+# -----------------------
+Flask-Limiter==3.5.0
+
+# -----------------------
+# Cron Job Helpers
+# -----------------------
+APScheduler==3.10.4
+
+# -----------------------
+# Hata İzleme (Opsiyonel - Production için)
+# -----------------------
+# sentry-sdk[flask]==1.39.1
+
+# -----------------------
+# Testing (Development için)
+# -----------------------
+pytest==7.4.3
+pytest-flask==1.3.0
