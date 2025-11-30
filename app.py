@@ -354,7 +354,7 @@ def create_app():
                 "/news",
                 "/news?category=technology",
                 "/news/stats",
-                "/api/usage"  # 🆕 YENİ!
+                "/api/usage"
             ]
         }), 404
     
@@ -371,12 +371,17 @@ def create_app():
     
     return app
 
+
 # ================================================
-# UYGULAMA BAŞLATMA
+# GUNICORN İÇİN APP OBJESİ (KRİTİK!)
+# ================================================
+app = create_app()
+
+
+# ================================================
+# UYGULAMA BAŞLATMA (Lokal Test İçin)
 # ================================================
 if __name__ == "__main__":
-    app = create_app()
-    
     # Port (Render otomatik 10000 atar)
     port = int(os.getenv("PORT", 10000))
     
