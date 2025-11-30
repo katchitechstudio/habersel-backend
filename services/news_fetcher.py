@@ -1,32 +1,89 @@
 import requests
 from typing import List, Dict, Optional
+import logging
+from datetime import datetime
 
 from config import Config
-from services.api_manager import can_call, register_call
+from services.api_manager import can_call, register_call, get_next_available_api
 
+logger = logging.getLogger(__name__)
 
-# Uygulamada desteklenen kategoriler (config'ten çekilebilir)
+# Desteklenen kategoriler
 CATEGORIES = Config.NEWS_CATEGORIES
 
-
 # ------------------------------------------
-# Ortak GET fonksiyonu (timeout + hata yakalama)
+# Ortak GET fonksiyonu (Geliştirilmiş)
 # ------------------------------------------
-def _safe_get(url: str, params: dict) -> Optional[dict]:
+def _safe_get(url: str, params: dict, api_name: str = "unknown") -> Optional[dict]:
+    """
+    Güvenli HTTP GET isteği
+    
+    Args:
+        url: İstek URL'i
+        params: Query parametreleri
+        api_name: API adı (loglama için)
+    
+    Returns:
+        dict veya None (hata durumunda)
+    """
     try:
-        resp = requests.get(url, params=params, timeout=10)
-        if resp.status_code != 200:
+        logger.debug(f"🌐 {api_name} → {url}")
+        
+        resp = requests.get(
+            url, 
+            params=params, 
+            timeout=Config.API_TIMEOUT,
+            headers={
+                "User-Agent": "Habersel/1.0 (News Aggregator)"
+            }
+        )
+        
+        # HTTP hata kontrolü
+        if resp.status_code == 429:
+            logger.warning(f"⚠️  {api_name} rate limit hatası!")
             return None
-        return resp.json()
-    except Exception:
+        
+        if resp.status_code == 401:
+            logger.error(f"❌ {api_name} authentication hatası! API key kontrol et.")
+            return None
+        
+        if resp.status_code != 200:
+            logger.warning(f"⚠️  {api_name} HTTP {resp.status_code} hatası")
+            return None
+        
+        data = resp.json()
+        logger.debug(f"✅ {api_name} başarılı")
+        return data
+        
+    except requests.exceptions.Timeout:
+        logger.error(f"❌ {api_name} timeout ({Config.API_TIMEOUT}s)")
+        return None
+    except requests.exceptions.ConnectionError:
+        logger.error(f"❌ {api_name} bağlantı hatası")
+        return None
+    except Exception as e:
+        logger.error(f"❌ {api_name} beklenmeyen hata: {e}")
         return None
 
 
 # ------------------------------------------
-# GNEWS
+# GNEWS (En öncelikli API)
 # ------------------------------------------
 def fetch_gnews(category: str, limit: int = 5) -> List[Dict]:
-    if not can_call("gnews"):
+    """
+    GNews API'den haber çeker
+    
+    Args:
+        category: Kategori (technology, sports, vb.)
+        limit: Kaç haber çekilecek
+    
+    Returns:
+        Haber listesi (standart format)
+    """
+    api_name = "gnews"
+    
+    if not can_call(api_name, count=limit):
+        logger.warning(f"⚠️  {api_name} limiti doldu, atlanıyor")
         return []
 
     url = "https://gnews.io/api/v4/top-headlines"
@@ -37,22 +94,35 @@ def fetch_gnews(category: str, limit: int = 5) -> List[Dict]:
         "apikey": Config.GNEWS_API_KEY,
     }
 
-    data = _safe_get(url, params)
+    data = _safe_get(url, params, api_name)
+    
     if not data:
+        register_call(api_name, count=limit, success=False)
         return []
 
-    register_call("gnews")
+    articles = data.get("articles", [])
+    
+    if not articles:
+        logger.warning(f"⚠️  {api_name} boş sonuç döndü")
+        register_call(api_name, count=limit, success=False)
+        return []
+    
+    # Başarılı kayıt
+    register_call(api_name, count=limit, success=True)
+    logger.info(f"✅ {api_name} → {len(articles)} haber çekildi ({category})")
 
-    # Standart format: title, description, url, image, source
+    # Standart format
     return [
         {
-            "title": a.get("title"),
-            "description": a.get("description"),
-            "url": a.get("url"),
+            "title": a.get("title", "").strip(),
+            "description": a.get("description", "").strip(),
+            "url": a.get("url", "").strip(),
             "image": a.get("image"),
-            "source": "GNews",
+            "source": a.get("source", {}).get("name", "GNews"),
+            "publishedAt": a.get("publishedAt"),
         }
-        for a in data.get("articles", [])
+        for a in articles
+        if a.get("title") and a.get("url")  # Boş haber filtreleme
     ]
 
 
@@ -60,30 +130,47 @@ def fetch_gnews(category: str, limit: int = 5) -> List[Dict]:
 # Currents API
 # ------------------------------------------
 def fetch_currents(category: str, limit: int = 5) -> List[Dict]:
-    if not can_call("currents"):
+    """Currents API'den haber çeker"""
+    api_name = "currents"
+    
+    if not can_call(api_name, count=limit):
+        logger.warning(f"⚠️  {api_name} limiti doldu, atlanıyor")
         return []
 
     url = "https://api.currentsapi.services/v1/latest-news"
     params = {
         "category": category,
+        "language": "tr",
         "apiKey": Config.CURRENTS_API_KEY,
     }
 
-    data = _safe_get(url, params)
+    data = _safe_get(url, params, api_name)
+    
     if not data:
+        register_call(api_name, count=limit, success=False)
         return []
 
-    register_call("currents")
+    news = data.get("news", [])[:limit]
+    
+    if not news:
+        logger.warning(f"⚠️  {api_name} boş sonuç döndü")
+        register_call(api_name, count=limit, success=False)
+        return []
+    
+    register_call(api_name, count=len(news), success=True)
+    logger.info(f"✅ {api_name} → {len(news)} haber çekildi ({category})")
 
     return [
         {
-            "title": n.get("title"),
-            "description": n.get("description"),
-            "url": n.get("url"),
+            "title": n.get("title", "").strip(),
+            "description": n.get("description", "").strip(),
+            "url": n.get("url", "").strip(),
             "image": n.get("image"),
             "source": "Currents",
+            "publishedAt": n.get("published"),
         }
-        for n in data.get("news", [])[:limit]
+        for n in news
+        if n.get("title") and n.get("url")
     ]
 
 
@@ -91,32 +178,49 @@ def fetch_currents(category: str, limit: int = 5) -> List[Dict]:
 # NewsAPI.ai
 # ------------------------------------------
 def fetch_newsapi_ai(category: str, limit: int = 2) -> List[Dict]:
-    if not can_call("newsapi_ai"):
+    """NewsAPI.ai'den haber çeker"""
+    api_name = "newsapi_ai"
+    
+    if not can_call(api_name, count=limit):
+        logger.warning(f"⚠️  {api_name} limiti doldu, atlanıyor")
         return []
 
     url = "https://newsapi.ai/api/v1/article/getArticles"
     params = {
         "apikey": Config.NEWSAPI_AI_KEY,
-        "sourceCountries": "tr",
-        "categoryUri": category,
+        "sourceLocationUri": "http://en.wikipedia.org/wiki/Turkey",
+        "categoryUri": f"news/category/{category}",
+        "articlesCount": limit,
+        "resultType": "articles",
     }
 
-    data = _safe_get(url, params)
+    data = _safe_get(url, params, api_name)
+    
     if not data:
+        register_call(api_name, count=limit, success=False)
         return []
 
-    register_call("newsapi_ai")
+    articles = data.get("articles", {}).get("results", [])[:limit]
+    
+    if not articles:
+        logger.warning(f"⚠️  {api_name} boş sonuç döndü")
+        register_call(api_name, count=limit, success=False)
+        return []
+    
+    register_call(api_name, count=len(articles), success=True)
+    logger.info(f"✅ {api_name} → {len(articles)} haber çekildi ({category})")
 
-    articles = data.get("articles", {}).get("results", [])
     return [
         {
-            "title": a.get("title"),
-            "description": a.get("body"),
-            "url": a.get("url"),
+            "title": a.get("title", "").strip(),
+            "description": a.get("body", "").strip()[:500],  # İlk 500 karakter
+            "url": a.get("url", "").strip(),
             "image": a.get("image"),
             "source": "NewsAPI.ai",
+            "publishedAt": a.get("dateTime"),
         }
-        for a in articles[:limit]
+        for a in articles
+        if a.get("title") and a.get("url")
     ]
 
 
@@ -124,7 +228,11 @@ def fetch_newsapi_ai(category: str, limit: int = 2) -> List[Dict]:
 # Mediastack
 # ------------------------------------------
 def fetch_mediastack(category: str, limit: int = 3) -> List[Dict]:
-    if not can_call("mediastack"):
+    """Mediastack API'den haber çeker"""
+    api_name = "mediastack"
+    
+    if not can_call(api_name, count=limit):
+        logger.warning(f"⚠️  {api_name} limiti doldu, atlanıyor")
         return []
 
     url = "http://api.mediastack.com/v1/news"
@@ -133,31 +241,48 @@ def fetch_mediastack(category: str, limit: int = 3) -> List[Dict]:
         "categories": category,
         "languages": "tr",
         "limit": limit,
+        "sort": "published_desc",
     }
 
-    data = _safe_get(url, params)
+    data = _safe_get(url, params, api_name)
+    
     if not data:
+        register_call(api_name, count=limit, success=False)
         return []
 
-    register_call("mediastack")
+    news_data = data.get("data", [])
+    
+    if not news_data:
+        logger.warning(f"⚠️  {api_name} boş sonuç döndü")
+        register_call(api_name, count=limit, success=False)
+        return []
+    
+    register_call(api_name, count=len(news_data), success=True)
+    logger.info(f"✅ {api_name} → {len(news_data)} haber çekildi ({category})")
 
     return [
         {
-            "title": d.get("title"),
-            "description": d.get("description"),
-            "url": d.get("url"),
+            "title": d.get("title", "").strip(),
+            "description": d.get("description", "").strip(),
+            "url": d.get("url", "").strip(),
             "image": d.get("image"),
             "source": "Mediastack",
+            "publishedAt": d.get("published_at"),
         }
-        for d in data.get("data", [])
+        for d in news_data
+        if d.get("title") and d.get("url")
     ]
 
 
 # ------------------------------------------
-# NewsData (fallback)
+# NewsData (Yedek / Fallback)
 # ------------------------------------------
 def fetch_newsdata(category: str, limit: int = 3) -> List[Dict]:
-    if not can_call("newsdata"):
+    """NewsData API'den haber çeker (yedek olarak kullanılır)"""
+    api_name = "newsdata"
+    
+    if not can_call(api_name, count=limit):
+        logger.warning(f"⚠️  {api_name} limiti doldu, atlanıyor")
         return []
 
     url = "https://newsdata.io/api/1/news"
@@ -165,51 +290,123 @@ def fetch_newsdata(category: str, limit: int = 3) -> List[Dict]:
         "apikey": Config.NEWSDATA_KEY,
         "category": category,
         "language": "tr",
+        "size": limit,
     }
 
-    data = _safe_get(url, params)
+    data = _safe_get(url, params, api_name)
+    
     if not data:
+        register_call(api_name, count=limit, success=False)
         return []
 
-    register_call("newsdata")
+    results = data.get("results", [])[:limit]
+    
+    if not results:
+        logger.warning(f"⚠️  {api_name} boş sonuç döndü")
+        register_call(api_name, count=limit, success=False)
+        return []
+    
+    register_call(api_name, count=len(results), success=True)
+    logger.info(f"✅ {api_name} → {len(results)} haber çekildi ({category})")
 
     return [
         {
-            "title": r.get("title"),
-            "description": r.get("description"),
-            "url": r.get("link"),
+            "title": r.get("title", "").strip(),
+            "description": r.get("description", "").strip(),
+            "url": r.get("link", "").strip(),
             "image": r.get("image_url"),
             "source": "NewsData",
+            "publishedAt": r.get("pubDate"),
         }
-        for r in data.get("results", [])[:limit]
+        for r in results
+        if r.get("title") and r.get("link")
     ]
 
 
 # ------------------------------------------
-# Fallback zinciri ile haber alma
+# Akıllı Haber Çekme (Fallback Zinciri)
 # ------------------------------------------
-def get_news_from_best_source(category: str) -> List[Dict]:
+def get_news_from_best_source(category: str, exclude_apis: list = None) -> List[Dict]:
     """
-    İlk çalışan API'den haber alır.
-    Sıra:
-    1) GNews
-    2) Currents
-    3) NewsAPI.ai
-    4) Mediastack
-    5) NewsData
+    Öncelik sırasına göre ilk çalışan API'den haber alır.
+    
+    Args:
+        category: Kategori
+        exclude_apis: Hariç tutulacak API'ler (başarısız olanlar)
+    
+    Returns:
+        Haber listesi
     """
+    if exclude_apis is None:
+        exclude_apis = []
+    
+    # API fonksiyonları öncelik sırasına göre
+    api_functions = {
+        "gnews": fetch_gnews,
+        "currents": fetch_currents,
+        "newsapi_ai": fetch_newsapi_ai,
+        "mediastack": fetch_mediastack,
+        "newsdata": fetch_newsdata,
+    }
+    
+    # Bir sonraki kullanılabilir API'yi bul
+    next_api = get_next_available_api(exclude=exclude_apis)
+    
+    if not next_api:
+        logger.error(f"❌ {category} için hiçbir API kullanılamıyor!")
+        return []
+    
+    # API'yi çağır
+    fetch_func = api_functions.get(next_api)
+    if not fetch_func:
+        logger.error(f"❌ {next_api} için fonksiyon bulunamadı!")
+        return []
+    
+    logger.info(f"🎯 {category} için {next_api} kullanılıyor...")
+    
+    news = fetch_func(category)
+    
+    if not news:
+        # Bu API başarısız oldu, bir sonrakini dene
+        logger.warning(f"⚠️  {next_api} başarısız, fallback deneniyor...")
+        exclude_apis.append(next_api)
+        return get_news_from_best_source(category, exclude_apis)
+    
+    return news
 
-    funcs = [
-        fetch_gnews,
-        fetch_currents,
-        fetch_newsapi_ai,
-        fetch_mediastack,
-        fetch_newsdata,
-    ]
 
-    for fn in funcs:
-        news = fn(category)
-        if news:
-            return news
-
-    return []  # tüm API'ler çökerse bile boş döner
+# ------------------------------------------
+# Toplu Haber Çekme (Tüm kategoriler için)
+# ------------------------------------------
+def fetch_all_categories(api_name: str) -> Dict[str, List[Dict]]:
+    """
+    Belirli bir API'den tüm kategorilerdeki haberleri çeker
+    
+    Args:
+        api_name: API adı (gnews, currents, vb.)
+    
+    Returns:
+        {category: [news_list]} formatında dict
+    """
+    api_functions = {
+        "gnews": fetch_gnews,
+        "currents": fetch_currents,
+        "newsapi_ai": fetch_newsapi_ai,
+        "mediastack": fetch_mediastack,
+        "newsdata": fetch_newsdata,
+    }
+    
+    fetch_func = api_functions.get(api_name)
+    
+    if not fetch_func:
+        logger.error(f"❌ Bilinmeyen API: {api_name}")
+        return {}
+    
+    results = {}
+    
+    for category in CATEGORIES:
+        logger.info(f"📰 {api_name} → {category} çekiliyor...")
+        news = fetch_func(category)
+        results[category] = news
+    
+    return results
