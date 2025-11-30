@@ -269,57 +269,73 @@ class NewsModel:
         Returns:
             int: Haber sayısı
         """
-        conn = get_db()
-        cur = conn.cursor()
-        
+        conn = None
         try:
+            conn = get_db()
+            cur = conn.cursor()
+            
             cur.execute("""
                 SELECT COUNT(*) 
                 FROM news 
                 WHERE category = %s AND expires_at > NOW();
             """, (category,))
             
-            count = cur.fetchone()[0]
-            return count
+            result = cur.fetchone()
+            cur.close()
+            
+            return result[0] if result else 0
             
         except Exception as e:
             logger.error(f"❌ Count hatası: {e}")
             return 0
         finally:
-            put_db(conn)
+            if conn:
+                put_db(conn)
     
     @staticmethod
     def get_total_count():
         """
         Toplam haber sayısı
         """
-        conn = get_db()
-        cur = conn.cursor()
-        
+        conn = None
         try:
+            conn = get_db()
+            cur = conn.cursor()
+            
             cur.execute("SELECT COUNT(*) FROM news WHERE expires_at > NOW();")
-            count = cur.fetchone()[0]
-            return count
+            
+            result = cur.fetchone()
+            cur.close()
+            
+            return result[0] if result else 0
+            
         except Exception as e:
             logger.error(f"❌ Total count hatası: {e}")
             return 0
         finally:
-            put_db(conn)
+            if conn:
+                put_db(conn)
     
     @staticmethod
     def get_latest_update_time():
         """
         En son haber ekleme zamanı
         """
-        conn = get_db()
-        cur = conn.cursor()
-        
+        conn = None
         try:
+            conn = get_db()
+            cur = conn.cursor()
+            
             cur.execute("SELECT MAX(saved_at) FROM news;")
-            result = cur.fetchone()[0]
-            return result
+            
+            result = cur.fetchone()
+            cur.close()
+            
+            return result[0] if result and result[0] else None
+            
         except Exception as e:
             logger.error(f"❌ Latest update time hatası: {e}")
             return None
         finally:
-            put_db(conn)
+            if conn:
+                put_db(conn)
