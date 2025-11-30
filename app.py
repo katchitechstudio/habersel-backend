@@ -236,6 +236,47 @@ def create_app():
             }), 500
     
     # -----------------------
+    # 🆕 SON GÜNCELLEME ZAMANI (YENİ - ANDROID İÇİN!)
+    # -----------------------
+    @app.route("/news/last-update", methods=["GET"])
+    def get_last_update():
+        """
+        Database'deki son haber ekleme zamanını döndürür
+        Android app bu endpoint'i kontrol eder
+        
+        Response:
+        {
+            "success": true,
+            "last_update": "2025-11-30T12:55:14.149000",
+            "timestamp": "2025-11-30T15:30:00+03:00"
+        }
+        """
+        try:
+            # Database'den son güncelleme zamanını al
+            latest = NewsModel.get_latest_update_time()
+            
+            if latest:
+                return jsonify({
+                    "success": True,
+                    "last_update": latest.isoformat(),
+                    "timestamp": datetime.now(pytz.timezone(Config.TIMEZONE)).isoformat()
+                }), 200
+            else:
+                return jsonify({
+                    "success": True,
+                    "last_update": None,
+                    "message": "Henüz haber yok",
+                    "timestamp": datetime.now(pytz.timezone(Config.TIMEZONE)).isoformat()
+                }), 200
+                
+        except Exception as e:
+            logger.error(f"❌ /news/last-update hatası: {e}")
+            return jsonify({
+                "success": False,
+                "error": str(e)
+            }), 500
+    
+    # -----------------------
     # Kategorilere Göre Haber Sayıları
     # -----------------------
     @app.route("/news/stats", methods=["GET"])
@@ -261,25 +302,12 @@ def create_app():
             }), 500
     
     # -----------------------
-    # 🆕 API Kullanım İstatistikleri (YENİ!)
+    # API Kullanım İstatistikleri
     # -----------------------
     @app.route("/api/usage", methods=["GET"])
     def api_usage_stats():
         """
         API limitlerinin kullanım durumunu gösterir
-        
-        Response:
-        {
-            "apis": {
-                "gnews": {"limit": 100, "used": 45, "remaining": 55, ...},
-                "currents": {...}
-            },
-            "summary": {
-                "total_requests_made": 78,
-                "total_daily_limit": 133,
-                ...
-            }
-        }
         """
         try:
             from services.api_manager import get_all_usage, get_daily_summary
@@ -353,6 +381,7 @@ def create_app():
                 "/cron?key=YOUR_SECRET",
                 "/news",
                 "/news?category=technology",
+                "/news/last-update",
                 "/news/stats",
                 "/api/usage"
             ]
