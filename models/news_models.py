@@ -9,22 +9,13 @@ logger = logging.getLogger(__name__)
 class NewsModel:
     """
     Haber veritabanı işlemleri
-    - Tablo oluşturma
-    - Haber kaydetme (duplicate kontrolü ile)
-    - Süresi geçmiş haberleri silme
-    - Kategori bazlı listeleme
     """
 
+    # -------------------------------------------------------
+    # TABLO
+    # -------------------------------------------------------
     @staticmethod
     def create_table():
-        """
-        Haber tablosu yoksa oluşturur.
-
-        Özellikler:
-        - UNIQUE(title, url) → Aynı haberin tekrar eklenmesini engeller
-        - expires_at → 3 gün sonra otomatik silinecek
-        - INDEX → Kategori ve tarih bazlı sorgular hızlı olur
-        """
         conn = get_db()
         cur = conn.cursor()
 
@@ -41,19 +32,17 @@ class NewsModel:
                     published TIMESTAMP,
                     saved_at TIMESTAMP DEFAULT NOW(),
                     expires_at TIMESTAMP NOT NULL,
-
-                    -- Duplicate engelleme
                     CONSTRAINT unique_news UNIQUE (title, url)
                 );
 
-                -- İndeksler (Performans için)
-                CREATE INDEX IF NOT EXISTS idx_category ON news(category);
-                CREATE INDEX IF NOT EXISTS idx_saved_at ON news(saved_at DESC);
-                CREATE INDEX IF NOT EXISTS idx_expires_at ON news(expires_at);
+                CREATE INDEX IF NOT EXISTS idx_news_category ON news(category);
+                CREATE INDEX IF NOT EXISTS idx_news_saved_at ON news(saved_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_news_expires_at ON news(expires_at);
+                CREATE INDEX IF NOT EXISTS idx_news_published ON news(published DESC);
             """)
 
             conn.commit()
-            logger.info("✅ Haber tablosu hazır")
+            logger.info("✅ news tablosu hazır")
 
         except Exception as e:
             logger.error(f"❌ Tablo oluşturma hatası: {e}")
@@ -62,49 +51,49 @@ class NewsModel:
         finally:
             put_db(conn)
 
+    # -------------------------------------------------------
+    # TEK HABER KAYDETME
+    # -------------------------------------------------------
     @staticmethod
-    def save_article(article: dict, category: str, api_source: str = "unknown"):
-        """
-        Tek bir haberi veritabanına kaydeder.
-
-        Args:
-            article: Haber verisi (dict)
-            category: Kategori (technology, sports, vb.)
-            api_source: Hangi API'den geldi (gnews, currents, vb.)
-
-        Returns:
-            bool: Başarılı ise True, duplicate ise False
-        """
+    def save_article(article: dict, category: str, api_source: str = "unknown") -> bool:
         conn = get_db()
         cur = conn.cursor()
 
-        # Expire süresi hesapla (şu andan 3 gün sonra)
         expires = datetime.utcnow() + timedelta(days=Config.NEWS_EXPIRATION_DAYS)
 
         try:
-            # Güvenli alan okuma
             title = (article.get("title") or "").strip()
             description = (article.get("description") or "").strip()
             url = (article.get("url") or "").strip()
-            image = article.get("image") or article.get("urlToImage")  # API'lere göre farklı
-            published = article.get("publishedAt") or datetime.utcnow()
+            image = article.get("image") or article.get("urlToImage")
 
-            # Minimum veri doğrulaması
+            published_raw = article.get("publishedAt")
+
+            # Yayın tarihi normalize edilmesi
+            published = None
+            if isinstance(published_raw, datetime):
+                published = published_raw
+            elif isinstance(published_raw, str):
+                try:
+                    published = datetime.fromisoformat(published_raw.replace("Z", "+00:00"))
+                except Exception:
+                    try:
+                        from dateutil import parser
+                        published = parser.parse(published_raw)
+                    except:
+                        published = datetime.utcnow()
+            else:
+                published = datetime.utcnow()
+
+            # Zorunlu alan kontrolü
             if not title or not url:
                 logger.warning("⚠️  Boş title veya url yüzünden haber atlandı")
                 return False
 
-            # Haber kaydetme
             cur.execute("""
                 INSERT INTO news (
-                    category,
-                    title,
-                    description,
-                    url,
-                    image,
-                    source,
-                    published,
-                    expires_at
+                    category, title, description, url,
+                    image, source, published, expires_at
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (title, url) DO NOTHING
@@ -124,78 +113,65 @@ class NewsModel:
             conn.commit()
 
             if result:
-                logger.debug(f"✅ Yeni haber eklendi: {title[:50]}...")
+                logger.debug(f"✅ Kaydedildi: {title[:50]}...")
                 return True
             else:
-                logger.debug(f"⏭️  Duplicate haber atlandı: {title[:50]}...")
+                logger.debug(f"⏭️ Duplicate atlandı: {title[:50]}...")
                 return False
 
         except Exception as e:
             logger.error(f"❌ Haber kaydedilemedi: {e}")
-            logger.error(f"   Haber: {article.get('title', 'N/A')[:50]}")
             conn.rollback()
             return False
         finally:
             put_db(conn)
 
+    # -------------------------------------------------------
+    # BİR ÇOK HABERİ TOPLU KAYDETME
+    # -------------------------------------------------------
     @staticmethod
     def save_bulk(articles: list, category: str, api_source: str = "unknown"):
-        """
-        Birden fazla haberi toplu kaydet
-
-        Args:
-            articles: Haber listesi
-            category: Kategori
-            api_source: API kaynağı
-
-        Returns:
-            dict: {"saved": int, "duplicates": int, "errors": int}
-        """
         stats = {"saved": 0, "duplicates": 0, "errors": 0}
 
-        for article in articles:
-            if not article.get("title") or not article.get("url"):
+        for a in articles:
+            if not a.get("title") or not a.get("url"):
                 stats["errors"] += 1
                 continue
 
-            result = NewsModel.save_article(article, category, api_source)
+            ok = NewsModel.save_article(a, category, api_source)
 
-            if result:
+            if ok:
                 stats["saved"] += 1
             else:
                 stats["duplicates"] += 1
 
         logger.info(
-            f"📊 {api_source} → {category}: "
-            f"{stats['saved']} yeni, "
+            f"📊 {api_source} / {category}: "
+            f"{stats['saved']} kaydedildi, "
             f"{stats['duplicates']} duplicate, "
             f"{stats['errors']} hata"
         )
 
         return stats
 
+    # -------------------------------------------------------
+    # SÜRESİ GEÇEN HABERLERİ SİLME
+    # -------------------------------------------------------
     @staticmethod
     def delete_expired():
-        """
-        Süresi geçmiş haberleri siler
-        Returns: Silinen haber sayısı
-        """
         conn = get_db()
         cur = conn.cursor()
 
         try:
             cur.execute("DELETE FROM news WHERE expires_at < NOW() RETURNING id;")
-            deleted_rows = cur.fetchall()
-            deleted_count = len(deleted_rows)
-
+            rows = cur.fetchall()
             conn.commit()
 
-            if deleted_count > 0:
-                logger.info(f"🗑️  {deleted_count} eski haber silindi")
-            else:
-                logger.debug("✅ Silinecek eski haber yok")
+            count = len(rows)
+            if count > 0:
+                logger.info(f"🗑️  {count} eski haber silindi")
 
-            return deleted_count
+            return count
 
         except Exception as e:
             logger.error(f"❌ Eski haber silme hatası: {e}")
@@ -204,28 +180,19 @@ class NewsModel:
         finally:
             put_db(conn)
 
+    # -------------------------------------------------------
+    # HABER GETİRME (ANDROID TARAFI)
+    # -------------------------------------------------------
     @staticmethod
     def get_news(category: str = None, limit: int = 50, offset: int = 0):
-        """
-        Haberleri getir (Android app için)
-
-        Args:
-            category: Kategori filtresi (None ise tümü)
-            limit: Kaç haber
-            offset: Sayfalama için offset
-
-        Returns:
-            list: Haber listesi (dict formatında)
-        """
         conn = get_db()
         cur = conn.cursor()
 
         try:
             if category:
                 query = """
-                    SELECT
-                        id, category, title, description,
-                        url, image, source, published, saved_at
+                    SELECT id, category, title, description,
+                           url, image, source, published, saved_at
                     FROM news
                     WHERE category = %s AND expires_at > NOW()
                     ORDER BY saved_at DESC
@@ -234,9 +201,8 @@ class NewsModel:
                 cur.execute(query, (category, limit, offset))
             else:
                 query = """
-                    SELECT
-                        id, category, title, description,
-                        url, image, source, published, saved_at
+                    SELECT id, category, title, description,
+                           url, image, source, published, saved_at
                     FROM news
                     WHERE expires_at > NOW()
                     ORDER BY saved_at DESC
@@ -246,22 +212,21 @@ class NewsModel:
 
             rows = cur.fetchall()
 
-            # Dict formatına çevir
-            news_list = []
-            for row in rows:
-                news_list.append({
-                    "id": row[0],
-                    "category": row[1],
-                    "title": row[2],
-                    "description": row[3],
-                    "url": row[4],
-                    "image": row[5],
-                    "source": row[6],
-                    "published": row[7].isoformat() if row[7] else None,
-                    "saved_at": row[8].isoformat() if row[8] else None
+            data = []
+            for r in rows:
+                data.append({
+                    "id": r[0],
+                    "category": r[1],
+                    "title": r[2],
+                    "description": r[3],
+                    "url": r[4],
+                    "image": r[5],
+                    "source": r[6],
+                    "published": r[7].isoformat() if r[7] else None,
+                    "saved_at": r[8].isoformat() if r[8] else None,
                 })
 
-            return news_list
+            return data
 
         except Exception as e:
             logger.error(f"❌ Haber getirme hatası: {e}")
@@ -269,93 +234,51 @@ class NewsModel:
         finally:
             put_db(conn)
 
-    @staticmethod
-    def get_by_category(category: str, limit: int = 50):
-        """
-        Kategoriye göre haber getir (geriye uyumluluk için)
-        """
-        return NewsModel.get_news(category=category, limit=limit)
-
+    # -------------------------------------------------------
+    # CATEGORY COUNT
+    # -------------------------------------------------------
     @staticmethod
     def count_by_category(category: str):
-        """
-        Belirli bir kategoride kaç haber var?
-
-        Returns:
-            int: Haber sayısı
-        """
-        conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
-
             cur.execute("""
-                SELECT COUNT(*)
-                FROM news
+                SELECT COUNT(*) FROM news
                 WHERE category = %s AND expires_at > NOW();
             """, (category,))
-
-            result = cur.fetchone()
-            cur.close()
-
-            return result[0] if result else 0
-
-        except Exception as e:
-            logger.error(f"❌ Count hatası: {e}")
+            return cur.fetchone()[0]
+        except:
             return 0
         finally:
-            if conn:
-                put_db(conn)
+            put_db(conn)
 
+    # -------------------------------------------------------
+    # TOTAL COUNT
+    # -------------------------------------------------------
     @staticmethod
     def get_total_count():
-        """
-        Toplam haber sayısı
-        """
-        conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
-
             cur.execute("SELECT COUNT(*) FROM news WHERE expires_at > NOW();")
-
-            result = cur.fetchone()
-            cur.close()
-
-            return result[0] if result else 0
-
-        except Exception as e:
-            logger.error(f"❌ Total count hatası: {e}")
+            return cur.fetchone()[0]
+        except:
             return 0
         finally:
-            if conn:
-                put_db(conn)
+            put_db(conn)
 
+    # -------------------------------------------------------
+    # EN SON EKLENME ZAMANI
+    # -------------------------------------------------------
     @staticmethod
     def get_latest_update_time():
-        """
-        En son haber ekleme zamanı.
-        Haber yoksa None döner (bu HATA değildir).
-        """
-        conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
-
             cur.execute("SELECT MAX(saved_at) FROM news;")
-
-            result = cur.fetchone()
-            cur.close()
-
-            if result and result[0]:
-                return result[0]
-            else:
-                # Haber yok → normal durum
-                return None
-
-        except Exception as e:
-            logger.error(f"❌ Latest update time sorgu hatası: {e}")
+            result = cur.fetchone()[0]
+            return result
+        except:
             return None
         finally:
-            if conn:
-                put_db(conn)
+            put_db(conn)
