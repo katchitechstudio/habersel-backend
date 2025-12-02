@@ -14,27 +14,23 @@ class Config:
     # -----------------------
     # Güvenlik — Cron Secret
     # -----------------------
-    # Cron job isteklerini doğrulamak için gizli anahtar
-    # Üretim ortamında mutlaka değiştir!
     CRON_SECRET = os.getenv("CRON_SECRET", "CHANGE_THIS_SECRET_KEY_IN_PRODUCTION")
     
     # -----------------------
     # Veritabanı Ayarları
     # -----------------------
-    # Render'dan alacağın PostgreSQL URL'i buraya gelecek
     DB_URL = os.getenv("DB_URL", "postgresql://username:password@localhost:5432/habersel")
     
     # -----------------------
-    # API Key'ler (En son dolduracağız)
+    # API Key'ler
     # -----------------------
     GNEWS_API_KEY = os.getenv("GNEWS_API_KEY", "")
     CURRENTS_API_KEY = os.getenv("CURRENTS_API_KEY", "")
-    NEWSAPI_AI_KEY = os.getenv("NEWSAPI_AI_KEY", "")
     MEDIASTACK_KEY = os.getenv("MEDIASTACK_KEY", "")
     NEWSDATA_KEY = os.getenv("NEWSDATA_KEY", "")
     
     # -----------------------
-    # API Limit Ayarları (Aylık)
+    # API Limit Ayarları (Daily)
     # -----------------------
     API_LIMITS = {
         "gnews": {
@@ -47,113 +43,86 @@ class Config:
             "daily": 20,
             "priority": 2
         },
-        "newsapi_ai": {
-            "monthly": 200,
-            "daily": 7,  # ~6.6 → 7'ye yuvarladım
-            "priority": 3
-        },
         "mediastack": {
             "monthly": 100,
             "daily": 3,
-            "priority": 4
+            "priority": 3
         },
         "newsdata": {
             "monthly": 100,
             "daily": 3,
-            "priority": 5  # Yedek API
+            "priority": 4  # En son fallback
         }
     }
     
     # -----------------------
     # Haber Sistem Ayarları
     # -----------------------
-    # Kaç gün geriye dönük haber saklanacak
     NEWS_EXPIRATION_DAYS = int(os.getenv("NEWS_EXPIRATION_DAYS", "3"))
     
-    # Kategoriler — Android app ile senkronize
     NEWS_CATEGORIES = ["general", "business", "technology", "world", "sports"]
     
-    # Her kategori için kaç haber çekilecek (API'ye göre değişir)
+    # Her API için kaç haber çekilecek
     NEWS_PER_CATEGORY = {
         "gnews": 5,
         "currents": 5,
-        "newsapi_ai": 2,
         "mediastack": 3,
         "newsdata": 3
     }
     
     # -----------------------
-    # Günlük Güncelleme Planı
+    # Günlük Cron Planı (NEWSAPI.ai temizlenmiş)
     # -----------------------
-    # Hangi saatte hangi API'ler kullanılacak
     CRON_SCHEDULE = {
-        "morning": {  # 08:00 (Türkiye) = 05:00 (UTC)
+        "morning": {  # 08:00 TR = 05:00 UTC
             "time": "05:00",
-            "apis": ["gnews", "currents", "newsapi_ai"],
-            "total_requests": 32  # 25 + 5 + 2
-        },
-        "noon": {  # 12:00 (Türkiye) = 09:00 (UTC)
-            "time": "09:00",
             "apis": ["gnews", "currents"],
             "total_requests": 30  # 25 + 5
         },
-        "evening": {  # 18:00 (Türkiye) = 15:00 (UTC)
-            "time": "15:00",
-            "apis": ["gnews", "currents", "newsapi_ai"],
-            "total_requests": 32  # 25 + 5 + 2
+        "noon": {  # 12:00 TR = 09:00 UTC
+            "time": "09:00",
+            "apis": ["gnews", "currents"],
+            "total_requests": 30
         },
-        "night": {  # 23:00 (Türkiye) = 20:00 (UTC)
+        "evening": {  # 18:00 TR = 15:00 UTC
+            "time": "15:00",
+            "apis": ["gnews", "currents"],
+            "total_requests": 30
+        },
+        "night": {  # 23:00 TR = 20:00 UTC
             "time": "20:00",
             "apis": ["gnews", "mediastack"],
-            "total_requests": 28  # 25 + 3
+            "total_requests": 28
         }
     }
     
     # -----------------------
-    # Zaman Dilimi
+    # Zaman & Cache
     # -----------------------
     TIMEZONE = os.getenv("TIMEZONE", "Europe/Istanbul")
+    CACHE_DURATION = int(os.getenv("CACHE_DURATION", "3600"))
     
     # -----------------------
-    # Cache Ayarları
+    # Duplicate Filter
     # -----------------------
-    # Her güncelleme sonrası cache süresi (saniye)
-    CACHE_DURATION = int(os.getenv("CACHE_DURATION", "3600"))  # 1 saat
-    
-    # -----------------------
-    # Duplicate Filter Ayarları
-    # -----------------------
-    # Başlık benzerlik oranı (%)
     SIMILARITY_THRESHOLD = int(os.getenv("SIMILARITY_THRESHOLD", "85"))
-    
-    # Aynı haber için zaman farkı toleransı (saniye)
-    TIME_DIFF_THRESHOLD = int(os.getenv("TIME_DIFF_THRESHOLD", "900"))  # 15 dakika
+    TIME_DIFF_THRESHOLD = int(os.getenv("TIME_DIFF_THRESHOLD", "900"))
     
     # -----------------------
     # Loglama
     # -----------------------
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-    
-    # Log formatı
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
     # -----------------------
-    # API Endpoint Ayarları
+    # Rate Limiting
     # -----------------------
-    # Rate limiting (kullanıcı başına)
     RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
-    
-    # Maksimum sayfa başına haber sayısı
     MAX_NEWS_PER_PAGE = int(os.getenv("MAX_NEWS_PER_PAGE", "50"))
     
     # -----------------------
-    # Hata Yönetimi
+    # API Timeout / Retry
     # -----------------------
-    # API timeout süresi (saniye)
     API_TIMEOUT = int(os.getenv("API_TIMEOUT", "10"))
-    
-    # Başarısız isteklerde retry sayısı
     MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
-    
-    # Retry aralığı (saniye)
     RETRY_DELAY = int(os.getenv("RETRY_DELAY", "2"))
