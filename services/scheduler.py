@@ -1,5 +1,5 @@
 from services.news_service import NewsService
-from models.news_models import NewsModel
+from models.system_models import SystemModel
 from config import Config
 from datetime import datetime
 import pytz
@@ -14,11 +14,11 @@ logger = logging.getLogger(__name__)
 
 def run_update(label: str, slot_name: str = None):
     """
-    Zamanlanmış güncelleme görevini çalıştırır.
+    Zamanlanmış haber güncelleme görevini çalıştırır.
 
     Args:
         label: Log etiketi (örn: SABAH 08:00)
-        slot_name: Config.CRON_SCHEDULE key'i (örn: "morning")
+        slot_name: Config.CRON_SCHEDULE key'i (örn: morning)
     """
     tz = pytz.timezone(Config.TIMEZONE)
     start_time = datetime.now(tz)
@@ -29,21 +29,19 @@ def run_update(label: str, slot_name: str = None):
     logger.info("=" * 75)
 
     try:
-        # Slot bazlı güncelleme (önerilen)
+        # Slot'a göre API zincirli güncelleme
         if slot_name and slot_name in Config.CRON_SCHEDULE:
             stats = NewsService.update_scheduled_slot(slot_name)
         else:
-            # Klasik tüm kategoriler
             stats = NewsService.update_all_categories()
 
-        # Süreyi hesapla
         end_time = datetime.now(tz)
         duration = (end_time - start_time).total_seconds()
 
-        # Cron sonunda last_update değerini DB'ye yazalım:
-        last_update = datetime.utcnow()
-        logger.info(f"💾 Last update DB'ye işleniyor → {last_update.isoformat()} UTC")
-        _write_last_update(last_update)
+        # last_update güncellemesi
+        last_update_utc = datetime.utcnow()
+        SystemModel.set_last_update(last_update_utc)
+        logger.info(f"💾 last_update güncellendi → {last_update_utc.isoformat()} UTC")
 
         logger.info("=" * 75)
         logger.info(f"✅ [{label}] GÜNCELLEME TAMAMLANDI")
@@ -58,68 +56,31 @@ def run_update(label: str, slot_name: str = None):
 
 
 # ======================================================
-# LAST-UPDATE DB YAZICI
-# ======================================================
-
-def _write_last_update(dt: datetime):
-    """
-    Cron çalıştıktan sonra son güncelleme zamanını
-    DB'ye işleyen fonksiyon.
-    """
-    try:
-        # Aynı NewsModel içine eklenebilir ama sade bırakıyoruz.
-        conn = NewsModel.get_db() if hasattr(NewsModel, "get_db") else None
-        conn = conn or get_db()
-        cur = conn.cursor()
-
-        cur.execute("""
-            INSERT INTO system_info (id, last_update)
-            VALUES (1, %s)
-            ON CONFLICT (id) DO UPDATE SET last_update = EXCLUDED.last_update;
-        """, (dt,))
-
-        conn.commit()
-        cur.close()
-        conn.close()
-
-    except Exception as e:
-        logger.error(f"❌ Last update yazma hatası: {e}")
-
-
-# ======================================================
-# CRON JOB FONKSİYONLARI
+# CRON JOB FONKSİYONLARI (TÜRKİYE SAATLERİNE GÖRE)
 # ======================================================
 
 def morning_job():
-    """
-    Sabah 08:00 (Türkiye) → GNews + Currents + NewsAPI.ai
-    """
+    """Sabah 08:00 — GNews + Currents + NewsAPI.ai"""
     return run_update("SABAH 08:00", slot_name="morning")
 
 
 def noon_job():
-    """
-    Öğle 12:00 → GNews + Currents
-    """
+    """Öğle 12:00 — GNews + Currents"""
     return run_update("ÖĞLE 12:00", slot_name="noon")
 
 
 def evening_job():
-    """
-    Akşam 18:00 → GNews + Currents + NewsAPI.ai
-    """
+    """Akşam 18:00 — GNews + Currents + NewsAPI.ai"""
     return run_update("AKŞAM 18:00", slot_name="evening")
 
 
 def night_job():
-    """
-    Gece 23:00 → GNews + Mediastack
-    """
+    """Gece 23:00 — GNews + Mediastack"""
     return run_update("GECE 23:00", slot_name="night")
 
 
 # ======================================================
-# TEMİZLİK GÖREVİ
+# TEMİZLİK GÖREVİ – 03:00
 # ======================================================
 
 def cleanup_job():
