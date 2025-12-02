@@ -342,4 +342,20 @@ class NewsModel:
             conn = get_db()
             cur = conn.cursor()
 
-            cur.e
+            cur.execute("SELECT MAX(saved_at) FROM news;")
+
+            result = cur.fetchone()
+            cur.close()
+
+            if result and result[0]:
+                return result[0]
+            else:
+                # Haber yok → normal durum
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ Latest update time sorgu hatası: {e}")
+            return None
+        finally:
+            if conn:
+                put_db(conn)
