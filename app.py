@@ -17,22 +17,22 @@ import logging
 from datetime import datetime
 import pytz
 
-# -----------------------
-# Loglama Ayarları
-# -----------------------
+# ====================================================
+# LOGGING
+# ====================================================
 logging.basicConfig(
     level=getattr(logging, Config.LOG_LEVEL),
     format=Config.LOG_FORMAT
 )
 logger = logging.getLogger(__name__)
 
-# -----------------------
-# Son Çalışma Zamanı Takibi
-# -----------------------
+# ====================================================
+# LAST-RUNS DOSYASI (CRON TEKRARINI ENGELLEME)
+# ====================================================
 LAST_RUNS_FILE = "last_runs.json"
 
+
 def load_last_runs():
-    """Son çalışma zamanlarını yükle"""
     if not os.path.exists(LAST_RUNS_FILE):
         return {}
     try:
@@ -42,385 +42,250 @@ def load_last_runs():
         logger.error(f"❌ last_runs.json okunamadı: {e}")
         return {}
 
+
 def save_last_runs(data):
-    """Son çalışma zamanlarını kaydet"""
     try:
         with open(LAST_RUNS_FILE, "w") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
         logger.error(f"❌ last_runs.json yazılamadı: {e}")
 
+
 def should_run(task_name):
     """
-    Bugün bu görev çalıştı mı kontrol et
-    Returns: True = çalıştırılabilir, False = bugün zaten çalıştı
+    Bugün bu cron görevi çalıştı mı?
+    Çalışmadıysa çalıştırır ve işaretler.
     """
-    # Türkiye saatini al
     tz = pytz.timezone(Config.TIMEZONE)
     now = datetime.now(tz)
-    today_str = now.strftime("%Y-%m-%d")
-    
-    last_runs = load_last_runs()
-    
-    if last_runs.get(task_name) == today_str:
-        logger.info(f"⏭️  {task_name} bugün zaten çalıştı, atlanıyor...")
+    today = now.strftime("%Y-%m-%d")
+
+    runs = load_last_runs()
+
+    if runs.get(task_name) == today:
+        logger.info(f"⏭️  {task_name} bugün zaten çalıştı")
         return False
-    
-    # Bugün ilk kez çalışıyor
-    last_runs[task_name] = today_str
-    save_last_runs(last_runs)
-    logger.info(f"✅ {task_name} çalıştırılıyor...")
+
+    runs[task_name] = today
+    save_last_runs(runs)
+
+    logger.info(f"▶️ {task_name} çalıştırılıyor...")
     return True
 
-# -----------------------
-# Flask App Oluşturma
-# -----------------------
+
+# ====================================================
+# UYGULAMA OLUŞTURMA
+# ====================================================
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
-    
-    # CORS aktif et (Android app için gerekli)
-    CORS(app, resources={
-        r"/*": {
-            "origins": "*",  # Production'da sadece kendi domain'ine izin ver
-            "methods": ["GET", "POST"],
-            "allow_headers": ["Content-Type"]
-        }
-    })
-    
-    # Rate Limiting (Spam koruması)
+
+    # CORS
+    CORS(app, resources={r"/*": {"origins": "*"}})
+
+    # Rate Limiter
     limiter = Limiter(
-        app=app,
         key_func=get_remote_address,
-        default_limits=[f"{Config.RATE_LIMIT_PER_MINUTE} per minute"]
+        default_limits=[f"{Config.RATE_LIMIT_PER_MINUTE} per minute"],
+        app=app
     )
-    
-    # -----------------------
-    # Veritabanı Başlatma
-    # -----------------------
+
+    # ====================================================
+    # DATABASE TABLE
+    # ====================================================
     try:
         NewsModel.create_table()
-        logger.info("✅ Veritabanı tablosu hazır")
     except Exception as e:
-        logger.error(f"❌ Veritabanı hatası: {e}")
-    
-    # ================================================
-    # ROUTES (Endpoint'ler)
-    # ================================================
-    
-    # -----------------------
-    # Health Check (UptimeRobot için)
-    # -----------------------
+        logger.error(f"❌ DB tablo hatası: {e}")
+
+    # ====================================================
+    # ENDPOINT'LER
+    # ====================================================
+
+    # ---------------------------
+    # HEALTH CHECK
+    # ---------------------------
     @app.route("/health", methods=["GET"])
     def health():
-        """Backend sağlık kontrolü"""
         return jsonify({
             "status": "ok",
-            "timestamp": datetime.now(pytz.timezone(Config.TIMEZONE)).isoformat(),
-            "service": "habersel-backend"
+            "service": "habersel-backend",
+            "timestamp": datetime.now(
+                pytz.timezone(Config.TIMEZONE)
+            ).isoformat()
         }), 200
-    
-    # -----------------------
-    # CRON Endpoint (Otomatik Görevler)
-    # -----------------------
+
+    # ---------------------------
+    # CRON
+    # ---------------------------
     @app.route("/cron", methods=["GET"])
-    def cron_runner():
-        """
-        UptimeRobot veya Render Cron bu endpoint'i tetikler
-        Güvenlik: CRON_SECRET ile korunur
-        """
-        # Güvenlik kontrolü
+    def cron():
         key = request.args.get("key")
         if key != Config.CRON_SECRET:
-            logger.warning(f"⚠️  Yetkisiz cron denemesi: {request.remote_addr}")
             return jsonify({"error": "unauthorized"}), 401
-        
-        # Türkiye saatini al
+
         tz = pytz.timezone(Config.TIMEZONE)
         now = datetime.now(tz)
         hour = now.hour
-        
-        logger.info(f"⏰ /cron tetiklendi → Türkiye Saati: {now.strftime('%H:%M')}")
-        
+
+        logger.info(f"⏰ /cron tetiklendi (TR: {now.strftime('%H:%M')})")
+
         results = []
-        
-        # Sabah 08:00
+
+        # 08:00
         if hour == 8 and should_run("morning"):
             try:
                 morning_job()
-                results.append("morning_job ✅")
+                results.append("morning ✔️")
             except Exception as e:
-                logger.error(f"❌ morning_job hatası: {e}")
-                results.append(f"morning_job ❌: {str(e)}")
-        
-        # Öğle 12:00
+                results.append(f"morning ❌ {e}")
+
+        # 12:00
         elif hour == 12 and should_run("noon"):
             try:
                 noon_job()
-                results.append("noon_job ✅")
+                results.append("noon ✔️")
             except Exception as e:
-                logger.error(f"❌ noon_job hatası: {e}")
-                results.append(f"noon_job ❌: {str(e)}")
-        
-        # Akşam 18:00
+                results.append(f"noon ❌ {e}")
+
+        # 18:00
         elif hour == 18 and should_run("evening"):
             try:
                 evening_job()
-                results.append("evening_job ✅")
+                results.append("evening ✔️")
             except Exception as e:
-                logger.error(f"❌ evening_job hatası: {e}")
-                results.append(f"evening_job ❌: {str(e)}")
-        
-        # Gece 23:00
+                results.append(f"evening ❌ {e}")
+
+        # 23:00
         elif hour == 23 and should_run("night"):
             try:
                 night_job()
-                results.append("night_job ✅")
+                results.append("night ✔️")
             except Exception as e:
-                logger.error(f"❌ night_job hatası: {e}")
-                results.append(f"night_job ❌: {str(e)}")
-        
-        # Temizlik 03:00 (Gece yarısı)
+                results.append(f"night ❌ {e}")
+
+        # 03:00 temizlik
         elif hour == 3 and should_run("cleanup"):
             try:
                 cleanup_job()
-                results.append("cleanup_job ✅")
+                results.append("cleanup ✔️")
             except Exception as e:
-                logger.error(f"❌ cleanup_job hatası: {e}")
-                results.append(f"cleanup_job ❌: {str(e)}")
-        
+                results.append(f"cleanup ❌ {e}")
+
         else:
-            results.append(f"Saat {hour}:00 için planlanmış görev yok veya bugün zaten çalıştı")
-        
+            results.append(f"{hour}:00 → görev yok")
+
         return jsonify({
             "status": "ok",
             "timestamp": now.isoformat(),
             "results": results
         }), 200
-    
-    # -----------------------
-    # Haber Listeleme (Android App için)
-    # -----------------------
+
+    # ---------------------------
+    # HABER GETİRME
+    # ---------------------------
     @app.route("/news", methods=["GET"])
-    @limiter.limit("60 per minute")  # Rate limiting
+    @limiter.limit("60 per minute")
     def get_news():
-        """
-        Haberleri kategoriye göre getir
-        Query params:
-        - category: Kategori (opsiyonel)
-        - limit: Kaç haber (default: 50)
-        - offset: Sayfa (default: 0)
-        """
         try:
             category = request.args.get("category")
             limit = min(int(request.args.get("limit", 50)), Config.MAX_NEWS_PER_PAGE)
             offset = int(request.args.get("offset", 0))
-            
-            news_list = NewsModel.get_news(
-                category=category,
-                limit=limit,
-                offset=offset
-            )
-            
+
+            data = NewsModel.get_news(category, limit, offset)
+
             return jsonify({
                 "success": True,
-                "count": len(news_list),
-                "news": news_list
-            }), 200
-            
+                "count": len(data),
+                "news": data
+            })
+
         except Exception as e:
-            logger.error(f"❌ /news hatası: {e}")
-            return jsonify({
-                "success": False,
-                "error": str(e)
-            }), 500
-    
-    # -----------------------
-    # 🆕 SON GÜNCELLEME ZAMANI (YENİ - ANDROID İÇİN!)
-    # -----------------------
+            logger.exception("❌ /news hatası")
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    # ---------------------------
+    # SON GÜNCELLEME
+    # ---------------------------
     @app.route("/news/last-update", methods=["GET"])
-    def get_last_update():
-        """
-        Database'deki son haber ekleme zamanını döndürür
-        Android app bu endpoint'i kontrol eder
-        
-        Response:
-        {
-            "success": true,
-            "last_update": "2025-11-30T12:55:14.149000",
-            "timestamp": "2025-11-30T15:30:00+03:00"
-        }
-        """
+    def last_update():
         try:
-            # Database'den son güncelleme zamanını al
-            latest = NewsModel.get_latest_update_time()
-            
-            if latest:
-                return jsonify({
-                    "success": True,
-                    "last_update": latest.isoformat(),
-                    "timestamp": datetime.now(pytz.timezone(Config.TIMEZONE)).isoformat()
-                }), 200
-            else:
-                return jsonify({
-                    "success": True,
-                    "last_update": None,
-                    "message": "Henüz haber yok",
-                    "timestamp": datetime.now(pytz.timezone(Config.TIMEZONE)).isoformat()
-                }), 200
-                
-        except Exception as e:
-            logger.error(f"❌ /news/last-update hatası: {e}")
-            return jsonify({
-                "success": False,
-                "error": str(e)
-            }), 500
-    
-    # -----------------------
-    # Kategorilere Göre Haber Sayıları
-    # -----------------------
-    @app.route("/news/stats", methods=["GET"])
-    def get_stats():
-        """Her kategoride kaç haber var?"""
-        try:
-            stats = {}
-            for category in Config.NEWS_CATEGORIES:
-                count = NewsModel.count_by_category(category)
-                stats[category] = count
-            
+            ts = NewsModel.get_latest_update_time()
             return jsonify({
                 "success": True,
-                "stats": stats,
-                "total": sum(stats.values())
-            }), 200
-            
+                "last_update": ts.isoformat() if ts else None,
+                "timestamp": datetime.now(
+                    pytz.timezone(Config.TIMEZONE)
+                ).isoformat()
+            })
         except Exception as e:
-            logger.error(f"❌ /news/stats hatası: {e}")
-            return jsonify({
-                "success": False,
-                "error": str(e)
-            }), 500
-    
-    # -----------------------
-    # API Kullanım İstatistikleri
-    # -----------------------
+            logger.exception("❌ /news/last-update")
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    # ---------------------------
+    # KATEGORİ İSTATİSTİK
+    # ---------------------------
+    @app.route("/news/stats", methods=["GET"])
+    def stats():
+        try:
+            out = {cat: NewsModel.count_by_category(cat) for cat in Config.NEWS_CATEGORIES}
+            return jsonify({"success": True, "stats": out, "total": sum(out.values())})
+        except Exception as e:
+            logger.exception("❌ /news/stats")
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    # ---------------------------
+    # API Kullanım
+    # ---------------------------
     @app.route("/api/usage", methods=["GET"])
-    def api_usage_stats():
-        """
-        API limitlerinin kullanım durumunu gösterir
-        """
+    def api_usage():
         try:
             from services.api_manager import get_all_usage, get_daily_summary
-            
             return jsonify({
                 "success": True,
                 "timestamp": datetime.now(pytz.timezone(Config.TIMEZONE)).isoformat(),
                 "apis": get_all_usage(),
                 "summary": get_daily_summary()
-            }), 200
-            
+            })
         except Exception as e:
-            logger.error(f"❌ /api/usage hatası: {e}")
-            return jsonify({
-                "success": False,
-                "error": str(e)
-            }), 500
-    
-    # -----------------------
-    # Manuel Görev Tetikleme (Sadece Development)
-    # -----------------------
-    @app.route("/trigger/<task_name>", methods=["POST"])
-    def trigger_task(task_name):
-        """
-        Manuel görev tetikleme (sadece development için)
-        Production'da bu endpoint'i kapat!
-        """
-        if not Config.DEBUG:
-            return jsonify({"error": "Not allowed in production"}), 403
-        
-        # Güvenlik kontrolü
-        key = request.args.get("key")
-        if key != Config.CRON_SECRET:
-            return jsonify({"error": "unauthorized"}), 401
-        
-        try:
-            if task_name == "morning":
-                morning_job()
-            elif task_name == "noon":
-                noon_job()
-            elif task_name == "evening":
-                evening_job()
-            elif task_name == "night":
-                night_job()
-            elif task_name == "cleanup":
-                cleanup_job()
-            else:
-                return jsonify({"error": "Invalid task name"}), 400
-            
-            return jsonify({
-                "success": True,
-                "message": f"{task_name}_job tamamlandı"
-            }), 200
-            
-        except Exception as e:
-            logger.error(f"❌ Manual trigger hatası: {e}")
-            return jsonify({
-                "success": False,
-                "error": str(e)
-            }), 500
-    
-    # -----------------------
-    # 404 Hatası
-    # -----------------------
+            logger.exception("❌ /api/usage")
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    # ---------------------------
+    # 404
+    # ---------------------------
     @app.errorhandler(404)
-    def not_found(e):
+    def error_404(e):
         return jsonify({
-            "error": "Endpoint bulunamadı",
-            "available_endpoints": [
+            "error": "not_found",
+            "endpoints": [
                 "/health",
-                "/cron?key=YOUR_SECRET",
                 "/news",
-                "/news?category=technology",
-                "/news/last-update",
                 "/news/stats",
-                "/api/usage"
+                "/news/last-update",
+                "/cron?key=SECRET"
             ]
         }), 404
-    
-    # -----------------------
-    # 500 Hatası
-    # -----------------------
+
+    # ---------------------------
+    # 500
+    # ---------------------------
     @app.errorhandler(500)
-    def internal_error(e):
-        logger.error(f"❌ Internal server error: {e}")
+    def error_500(e):
         return jsonify({
-            "error": "Sunucu hatası",
+            "error": "server_error",
             "message": str(e)
         }), 500
-    
+
     return app
 
 
-# ================================================
-# GUNICORN İÇİN APP OBJESİ (KRİTİK!)
-# ================================================
+# ====================================================
+# GUNICORN ENTRY POINT
+# ====================================================
 app = create_app()
 
-
-# ================================================
-# UYGULAMA BAŞLATMA (Lokal Test İçin)
-# ================================================
 if __name__ == "__main__":
-    # Port (Render otomatik 10000 atar)
     port = int(os.getenv("PORT", 10000))
-    
-    logger.info(f"🚀 Habersel Backend başlatılıyor...")
-    logger.info(f"🌍 Port: {port}")
-    logger.info(f"🕒 Timezone: {Config.TIMEZONE}")
-    logger.info(f"📊 Debug Mode: {Config.DEBUG}")
-    
-    app.run(
-        host="0.0.0.0",
-        port=port,
-        debug=Config.DEBUG
-    )
+    logger.info("🚀 Habersel backend başlıyor...")
+    app.run(host="0.0.0.0", port=port, debug=Config.DEBUG)
