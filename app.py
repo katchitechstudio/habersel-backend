@@ -33,6 +33,7 @@ LAST_RUNS_FILE = "last_runs.json"
 
 
 def load_last_runs():
+    """Son çalışma zamanlarını yükler"""
     if not os.path.exists(LAST_RUNS_FILE):
         return {}
     try:
@@ -44,6 +45,7 @@ def load_last_runs():
 
 
 def save_last_runs(data):
+    """Son çalışma zamanlarını kaydeder"""
     try:
         with open(LAST_RUNS_FILE, "w") as f:
             json.dump(data, f, indent=2)
@@ -51,22 +53,31 @@ def save_last_runs(data):
         logger.error(f"❌ last_runs.json yazılamadı: {e}")
 
 
-def should_run(task_name):
+def should_run(task_name, hour):
     """
-    Bugün bu cron görevi çalıştı mı?
-    Çalışmadıysa çalıştırır ve işaretler.
+    Bu görevi bu saatte çalıştırmalı mı kontrol eder.
+    
+    Args:
+        task_name: Görev adı (morning, noon, evening, night, cleanup)
+        hour: Şu anki saat
+    
+    Returns:
+        bool: Çalıştırılmalı mı?
     """
     tz = pytz.timezone(Config.TIMEZONE)
     now = datetime.now(tz)
     today = now.strftime("%Y-%m-%d")
+    current_hour_str = f"{today}_{hour:02d}"
 
     runs = load_last_runs()
 
-    if runs.get(task_name) == today:
-        logger.info(f"⏭️  {task_name} bugün zaten çalıştı")
+    # Bugün bu saatte zaten çalıştı mı?
+    if runs.get(task_name) == current_hour_str:
+        logger.info(f"⏭️  {task_name} bugün saat {hour:02d}:00'de zaten çalıştı")
         return False
 
-    runs[task_name] = today
+    # Çalıştırılacak, kaydet
+    runs[task_name] = current_hour_str
     save_last_runs(runs)
 
     logger.info(f"▶️ {task_name} çalıştırılıyor...")
@@ -95,8 +106,17 @@ def create_app():
     # ====================================================
     try:
         NewsModel.create_table()
+        logger.info("✅ Database tabloları hazır")
     except Exception as e:
         logger.error(f"❌ DB tablo hatası: {e}")
+
+    # SystemInfo tablosu oluştur
+    try:
+        from models.system_models import SystemModel
+        SystemModel.init_table()
+        logger.info("✅ SystemInfo tablosu hazır")
+    except Exception as e:
+        logger.error(f"❌ SystemInfo tablo hatası: {e}")
 
     # ====================================================
     # ENDPOINT'LER
@@ -105,7 +125,7 @@ def create_app():
     # ---------------------------
     # HEALTH CHECK
     # ---------------------------
-    @app.route("/health", methods=["GET"])
+    @app.route("/health", methods=["GET", "HEAD"])
     def health():
         return jsonify({
             "status": "ok",
@@ -116,9 +136,9 @@ def create_app():
         }), 200
 
     # ---------------------------
-    # CRON
+    # CRON (FIXED - SAAT KONTROLÜ)
     # ---------------------------
-    @app.route("/cron", methods=["GET"])
+    @app.route("/cron", methods=["GET", "HEAD"])
     def cron():
         key = request.args.get("key")
         if key != Config.CRON_SECRET:
@@ -132,52 +152,89 @@ def create_app():
 
         results = []
 
-        # 08:00
-        if hour == 8 and should_run("morning"):
-            try:
-                morning_job()
-                results.append("morning ✔️")
-            except Exception as e:
-                results.append(f"morning ❌ {e}")
+        # SABAH 08:00
+        if hour == 8:
+            if should_run("morning", hour):
+                try:
+                    result = morning_job()
+                    if not result or not result.get("skipped"):
+                        results.append("morning ✅")
+                    else:
+                        results.append("morning ⏭️ (atlandı)")
+                except Exception as e:
+                    logger.exception(f"❌ morning_job hatası")
+                    results.append(f"morning ❌ {e}")
+            else:
+                results.append("morning ⏭️ (zaten çalıştı)")
 
-        # 12:00
-        elif hour == 12 and should_run("noon"):
-            try:
-                noon_job()
-                results.append("noon ✔️")
-            except Exception as e:
-                results.append(f"noon ❌ {e}")
+        # ÖĞLE 12:00
+        elif hour == 12:
+            if should_run("noon", hour):
+                try:
+                    result = noon_job()
+                    if not result or not result.get("skipped"):
+                        results.append("noon ✅")
+                    else:
+                        results.append("noon ⏭️ (atlandı)")
+                except Exception as e:
+                    logger.exception(f"❌ noon_job hatası")
+                    results.append(f"noon ❌ {e}")
+            else:
+                results.append("noon ⏭️ (zaten çalıştı)")
 
-        # 18:00
-        elif hour == 18 and should_run("evening"):
-            try:
-                evening_job()
-                results.append("evening ✔️")
-            except Exception as e:
-                results.append(f"evening ❌ {e}")
+        # AKŞAM 18:00
+        elif hour == 18:
+            if should_run("evening", hour):
+                try:
+                    result = evening_job()
+                    if not result or not result.get("skipped"):
+                        results.append("evening ✅")
+                    else:
+                        results.append("evening ⏭️ (atlandı)")
+                except Exception as e:
+                    logger.exception(f"❌ evening_job hatası")
+                    results.append(f"evening ❌ {e}")
+            else:
+                results.append("evening ⏭️ (zaten çalıştı)")
 
-        # 23:00
-        elif hour == 23 and should_run("night"):
-            try:
-                night_job()
-                results.append("night ✔️")
-            except Exception as e:
-                results.append(f"night ❌ {e}")
+        # GECE 23:00
+        elif hour == 23:
+            if should_run("night", hour):
+                try:
+                    result = night_job()
+                    if not result or not result.get("skipped"):
+                        results.append("night ✅")
+                    else:
+                        results.append("night ⏭️ (atlandı)")
+                except Exception as e:
+                    logger.exception(f"❌ night_job hatası")
+                    results.append(f"night ❌ {e}")
+            else:
+                results.append("night ⏭️ (zaten çalıştı)")
 
-        # 03:00 temizlik
-        elif hour == 3 and should_run("cleanup"):
-            try:
-                cleanup_job()
-                results.append("cleanup ✔️")
-            except Exception as e:
-                results.append(f"cleanup ❌ {e}")
+        # TEMİZLİK 03:00
+        elif hour == 3:
+            if should_run("cleanup", hour):
+                try:
+                    result = cleanup_job()
+                    if not result or not result.get("skipped"):
+                        results.append("cleanup ✅")
+                    else:
+                        results.append("cleanup ⏭️ (atlandı)")
+                except Exception as e:
+                    logger.exception(f"❌ cleanup_job hatası")
+                    results.append(f"cleanup ❌ {e}")
+            else:
+                results.append("cleanup ⏭️ (zaten çalıştı)")
 
+        # DİĞER SAATLER
         else:
-            results.append(f"{hour}:00 → görev yok")
+            results.append(f"⏸️  Saat {hour:02d}:00 - Planlanmış görev yok")
 
         return jsonify({
             "status": "ok",
             "timestamp": now.isoformat(),
+            "hour": hour,
             "results": results
         }), 200
 
@@ -263,6 +320,7 @@ def create_app():
                 "/news",
                 "/news/stats",
                 "/news/last-update",
+                "/api/usage",
                 "/cron?key=SECRET"
             ]
         }), 404
