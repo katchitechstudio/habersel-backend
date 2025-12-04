@@ -235,50 +235,76 @@ class NewsModel:
             put_db(conn)
 
     # -------------------------------------------------------
-    # CATEGORY COUNT
+    # CATEGORY COUNT (DÜZELTİLMİŞ)
     # -------------------------------------------------------
     @staticmethod
     def count_by_category(category: str):
+        conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
+            
             cur.execute("""
                 SELECT COUNT(*) FROM news
                 WHERE category = %s AND expires_at > NOW();
             """, (category,))
-            return cur.fetchone()[0]
-        except:
+            
+            result = cur.fetchone()
+            cur.close()  # ✅ Cursor kapat
+            
+            return result[0] if result else 0
+            
+        except Exception as e:
+            logger.error(f"❌ count_by_category hatası: {e}")
             return 0
         finally:
-            put_db(conn)
+            if conn:
+                put_db(conn)
 
     # -------------------------------------------------------
-    # TOTAL COUNT
+    # TOTAL COUNT (DÜZELTİLMİŞ)
     # -------------------------------------------------------
     @staticmethod
     def get_total_count():
+        conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
+            
             cur.execute("SELECT COUNT(*) FROM news WHERE expires_at > NOW();")
-            return cur.fetchone()[0]
-        except:
+            
+            result = cur.fetchone()
+            cur.close()  # ✅ Cursor kapat
+            
+            return result[0] if result else 0
+            
+        except Exception as e:
+            logger.error(f"❌ get_total_count hatası: {e}")
             return 0
         finally:
-            put_db(conn)
+            if conn:
+                put_db(conn)
 
     # -------------------------------------------------------
-    # EN SON EKLENME ZAMANI
+    # EN SON EKLENME ZAMANI (DÜZELTİLMİŞ)
     # -------------------------------------------------------
     @staticmethod
     def get_latest_update_time():
+        conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
+            
             cur.execute("SELECT MAX(saved_at) FROM news;")
-            result = cur.fetchone()[0]
-            return result
-        except:
+            
+            result = cur.fetchone()
+            cur.close()  # ✅ Cursor kapat
+            
+            return result[0] if result and result[0] else None
+            
+        except Exception as e:
+            logger.error(f"❌ get_latest_update_time hatası: {e}")
             return None
         finally:
-            put_db(conn)
+            if conn:
+                put_db(conn)
