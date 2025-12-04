@@ -136,7 +136,7 @@ def create_app():
         }), 200
 
     # ---------------------------
-    # CRON (FIXED - SAAT KONTROLÜ)
+    # CRON (FIXED - SAAT ARALIĞI KONTROLÜ)
     # ---------------------------
     @app.route("/cron", methods=["GET", "HEAD"])
     def cron():
@@ -152,9 +152,9 @@ def create_app():
 
         results = []
 
-        # SABAH 08:00
-        if hour == 8:
-            if should_run("morning", hour):
+        # SABAH 08:00-08:59 ✅ ARALIĞA ÇEVRİLDİ
+        if 8 <= hour < 9:
+            if should_run("morning", 8):
                 try:
                     result = morning_job()
                     if not result or not result.get("skipped"):
@@ -167,9 +167,9 @@ def create_app():
             else:
                 results.append("morning ⏭️ (zaten çalıştı)")
 
-        # ÖĞLE 12:00
-        elif hour == 12:
-            if should_run("noon", hour):
+        # ÖĞLE 12:00-12:59 ✅ ARALIĞA ÇEVRİLDİ
+        elif 12 <= hour < 13:
+            if should_run("noon", 12):
                 try:
                     result = noon_job()
                     if not result or not result.get("skipped"):
@@ -182,9 +182,9 @@ def create_app():
             else:
                 results.append("noon ⏭️ (zaten çalıştı)")
 
-        # AKŞAM 18:00
-        elif hour == 18:
-            if should_run("evening", hour):
+        # AKŞAM 18:00-18:59 ✅ ARALIĞA ÇEVRİLDİ
+        elif 18 <= hour < 19:
+            if should_run("evening", 18):
                 try:
                     result = evening_job()
                     if not result or not result.get("skipped"):
@@ -197,9 +197,9 @@ def create_app():
             else:
                 results.append("evening ⏭️ (zaten çalıştı)")
 
-        # GECE 23:00
-        elif hour == 23:
-            if should_run("night", hour):
+        # GECE 23:00-23:59 ✅ ARALIĞA ÇEVRİLDİ
+        elif 23 <= hour < 24:
+            if should_run("night", 23):
                 try:
                     result = night_job()
                     if not result or not result.get("skipped"):
@@ -212,9 +212,9 @@ def create_app():
             else:
                 results.append("night ⏭️ (zaten çalıştı)")
 
-        # TEMİZLİK 03:00
-        elif hour == 3:
-            if should_run("cleanup", hour):
+        # TEMİZLİK 03:00-03:59 ✅ ARALIĞA ÇEVRİLDİ
+        elif 3 <= hour < 4:
+            if should_run("cleanup", 3):
                 try:
                     result = cleanup_job()
                     if not result or not result.get("skipped"):
@@ -229,7 +229,7 @@ def create_app():
 
         # DİĞER SAATLER
         else:
-            results.append(f"⏸️  Saat {hour:02d}:00 - Planlanmış görev yok")
+            results.append(f"⏸️  Saat {hour:02d}:xx - Planlanmış görev yok")
 
         return jsonify({
             "status": "ok",
