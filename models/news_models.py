@@ -16,10 +16,11 @@ class NewsModel:
     # -------------------------------------------------------
     @staticmethod
     def create_table():
-        conn = get_db()
-        cur = conn.cursor()
-
+        conn = None
         try:
+            conn = get_db()
+            cur = conn.cursor()
+
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS news (
                     id SERIAL PRIMARY KEY,
@@ -46,22 +47,25 @@ class NewsModel:
 
         except Exception as e:
             logger.error(f"❌ Tablo oluşturma hatası: {e}")
-            conn.rollback()
+            if conn:
+                conn.rollback()
             raise
         finally:
-            put_db(conn)
+            if conn:
+                put_db(conn)
 
     # -------------------------------------------------------
     # TEK HABER KAYDETME
     # -------------------------------------------------------
     @staticmethod
     def save_article(article: dict, category: str, api_source: str = "unknown") -> bool:
-        conn = get_db()
-        cur = conn.cursor()
-
-        expires = datetime.utcnow() + timedelta(days=Config.NEWS_EXPIRATION_DAYS)
-
+        conn = None
         try:
+            conn = get_db()
+            cur = conn.cursor()
+
+            expires = datetime.utcnow() + timedelta(days=Config.NEWS_EXPIRATION_DAYS)
+
             title = (article.get("title") or "").strip()
             description = (article.get("description") or "").strip()
             url = (article.get("url") or "").strip()
@@ -121,10 +125,12 @@ class NewsModel:
 
         except Exception as e:
             logger.error(f"❌ Haber kaydedilemedi: {e}")
-            conn.rollback()
+            if conn:
+                conn.rollback()
             return False
         finally:
-            put_db(conn)
+            if conn:
+                put_db(conn)
 
     # -------------------------------------------------------
     # BİR ÇOK HABERİ TOPLU KAYDETME
@@ -159,10 +165,11 @@ class NewsModel:
     # -------------------------------------------------------
     @staticmethod
     def delete_expired():
-        conn = get_db()
-        cur = conn.cursor()
-
+        conn = None
         try:
+            conn = get_db()
+            cur = conn.cursor()
+
             cur.execute("DELETE FROM news WHERE expires_at < NOW() RETURNING id;")
             rows = cur.fetchall()
             conn.commit()
@@ -175,20 +182,23 @@ class NewsModel:
 
         except Exception as e:
             logger.error(f"❌ Eski haber silme hatası: {e}")
-            conn.rollback()
+            if conn:
+                conn.rollback()
             return 0
         finally:
-            put_db(conn)
+            if conn:
+                put_db(conn)
 
     # -------------------------------------------------------
     # HABER GETİRME (ANDROID TARAFI)
     # -------------------------------------------------------
     @staticmethod
     def get_news(category: str = None, limit: int = 50, offset: int = 0):
-        conn = get_db()
-        cur = conn.cursor()
-
+        conn = None
         try:
+            conn = get_db()
+            cur = conn.cursor()
+
             if category:
                 query = """
                     SELECT id, category, title, description,
@@ -232,7 +242,8 @@ class NewsModel:
             logger.error(f"❌ Haber getirme hatası: {e}")
             return []
         finally:
-            put_db(conn)
+            if conn:
+                put_db(conn)
 
     # -------------------------------------------------------
     # CATEGORY COUNT (DÜZELTİLMİŞ)
@@ -250,7 +261,7 @@ class NewsModel:
             """, (category,))
             
             result = cur.fetchone()
-            cur.close()  # ✅ Cursor kapat
+            cur.close()
             
             return result[0] if result else 0
             
@@ -274,7 +285,7 @@ class NewsModel:
             cur.execute("SELECT COUNT(*) FROM news WHERE expires_at > NOW();")
             
             result = cur.fetchone()
-            cur.close()  # ✅ Cursor kapat
+            cur.close()
             
             return result[0] if result else 0
             
@@ -290,7 +301,7 @@ class NewsModel:
     # -------------------------------------------------------
     @staticmethod
     def get_latest_update_time():
-        conn = None
+        conn = None  # ✅ EN ÖNEMLİ DÜZELTİLME!
         try:
             conn = get_db()
             cur = conn.cursor()
@@ -298,7 +309,7 @@ class NewsModel:
             cur.execute("SELECT MAX(saved_at) FROM news;")
             
             result = cur.fetchone()
-            cur.close()  # ✅ Cursor kapat
+            cur.close()
             
             return result[0] if result and result[0] else None
             
