@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from config import Config
 from models.db import get_db, put_db
 import logging
+import pytz  # ✅ PYTZ IMPORT
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ class NewsModel:
                 put_db(conn)
 
     # -------------------------------------------------------
-    # TEK HABER KAYDETME
+    # TEK HABER KAYDETME - TIMEZONE FIX
     # -------------------------------------------------------
     @staticmethod
     def save_article(article: dict, category: str, api_source: str = "unknown") -> bool:
@@ -64,7 +65,8 @@ class NewsModel:
             conn = get_db()
             cur = conn.cursor()
 
-            expires = datetime.utcnow() + timedelta(days=Config.NEWS_EXPIRATION_DAYS)
+            # ✅ TIMEZONE-AWARE DATETIME
+            expires = datetime.now(pytz.UTC) + timedelta(days=Config.NEWS_EXPIRATION_DAYS)
 
             title = (article.get("title") or "").strip()
             description = (article.get("description") or "").strip()
@@ -73,21 +75,30 @@ class NewsModel:
 
             published_raw = article.get("publishedAt")
 
-            # Yayın tarihi normalize edilmesi
+            # Yayın tarihi normalize edilmesi - TIMEZONE-AWARE
             published = None
             if isinstance(published_raw, datetime):
-                published = published_raw
+                # Eğer naive ise UTC ekle
+                if published_raw.tzinfo is None:
+                    published = published_raw.replace(tzinfo=pytz.UTC)
+                else:
+                    published = published_raw
             elif isinstance(published_raw, str):
                 try:
                     published = datetime.fromisoformat(published_raw.replace("Z", "+00:00"))
                 except Exception:
                     try:
                         from dateutil import parser
-                        published = parser.parse(published_raw)
+                        parsed = parser.parse(published_raw)
+                        # Naive ise UTC ekle
+                        if parsed.tzinfo is None:
+                            published = parsed.replace(tzinfo=pytz.UTC)
+                        else:
+                            published = parsed
                     except:
-                        published = datetime.utcnow()
+                        published = datetime.now(pytz.UTC)
             else:
-                published = datetime.utcnow()
+                published = datetime.now(pytz.UTC)
 
             # Zorunlu alan kontrolü
             if not title or not url:
@@ -117,7 +128,7 @@ class NewsModel:
             conn.commit()
 
             if result:
-                logger.debug(f"✅ Kaydedildi: {title[:50]}...")
+                logger.debug(f"✅ Kaydedildi: {title[:50]}... (expires: {expires.isoformat()})")
                 return True
             else:
                 logger.debug(f"⏭️ Duplicate atlandı: {title[:50]}...")
