@@ -190,7 +190,7 @@ class NewsModel:
                 put_db(conn)
 
     # -------------------------------------------------------
-    # HABER GETİRME (ANDROID TARAFI)
+    # HABER GETİRME (ANDROID TARAFI) - DÜZELTİLMİŞ
     # -------------------------------------------------------
     @staticmethod
     def get_news(category: str = None, limit: int = 50, offset: int = 0):
@@ -209,6 +209,7 @@ class NewsModel:
                     LIMIT %s OFFSET %s;
                 """
                 cur.execute(query, (category, limit, offset))
+                logger.debug(f"🔍 Query: category={category}, limit={limit}, offset={offset}")
             else:
                 query = """
                     SELECT id, category, title, description,
@@ -219,8 +220,12 @@ class NewsModel:
                     LIMIT %s OFFSET %s;
                 """
                 cur.execute(query, (limit, offset))
+                logger.debug(f"🔍 Query: ALL categories, limit={limit}, offset={offset}")
 
             rows = cur.fetchall()
+            
+            # ✅ DETAYLI LOG
+            logger.info(f"📊 Query sonucu: {len(rows)} haber bulundu")
 
             data = []
             for r in rows:
@@ -239,7 +244,8 @@ class NewsModel:
             return data
 
         except Exception as e:
-            logger.error(f"❌ Haber getirme hatası: {e}")
+            # ✅ FULL EXCEPTION LOG
+            logger.exception(f"❌ Haber getirme hatası")
             return []
         finally:
             if conn:
@@ -263,10 +269,13 @@ class NewsModel:
             result = cur.fetchone()
             cur.close()
             
-            return result[0] if result else 0
+            count = result[0] if result else 0
+            logger.debug(f"📊 {category}: {count} haber")
+            
+            return count
             
         except Exception as e:
-            logger.error(f"❌ count_by_category hatası: {e}")
+            logger.exception(f"❌ count_by_category hatası")
             return 0
         finally:
             if conn:
@@ -287,10 +296,13 @@ class NewsModel:
             result = cur.fetchone()
             cur.close()
             
-            return result[0] if result else 0
+            count = result[0] if result else 0
+            logger.debug(f"📊 Toplam: {count} haber")
+            
+            return count
             
         except Exception as e:
-            logger.error(f"❌ get_total_count hatası: {e}")
+            logger.exception(f"❌ get_total_count hatası")
             return 0
         finally:
             if conn:
@@ -301,7 +313,7 @@ class NewsModel:
     # -------------------------------------------------------
     @staticmethod
     def get_latest_update_time():
-        conn = None  # ✅ EN ÖNEMLİ DÜZELTİLME!
+        conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
@@ -311,10 +323,17 @@ class NewsModel:
             result = cur.fetchone()
             cur.close()
             
-            return result[0] if result and result[0] else None
+            timestamp = result[0] if result and result[0] else None
+            
+            if timestamp:
+                logger.debug(f"📅 Son güncelleme: {timestamp.isoformat()}")
+            else:
+                logger.debug("📅 Henüz haber yok")
+            
+            return timestamp
             
         except Exception as e:
-            logger.error(f"❌ get_latest_update_time hatası: {e}")
+            logger.exception(f"❌ get_latest_update_time hatası")
             return None
         finally:
             if conn:
