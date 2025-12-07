@@ -3,19 +3,12 @@ from config import Config
 from models.db import get_db, put_db
 import logging
 import pytz
-import psycopg2.extras  # ✅ DictCursor için
 
 logger = logging.getLogger(__name__)
 
 
 class NewsModel:
-    """
-    Haber veritabanı işlemleri
-    """
 
-    # -------------------------------------------------------
-    # TABLO
-    # -------------------------------------------------------
     @staticmethod
     def create_table():
         conn = None
@@ -29,6 +22,7 @@ class NewsModel:
                     category VARCHAR(50) NOT NULL,
                     title TEXT NOT NULL,
                     description TEXT,
+                    full_content TEXT,
                     url TEXT NOT NULL,
                     image TEXT,
                     source VARCHAR(100),
@@ -56,9 +50,6 @@ class NewsModel:
             if conn:
                 put_db(conn)
 
-    # -------------------------------------------------------
-    # TEK HABER KAYDETME - TIMEZONE FIX
-    # -------------------------------------------------------
     @staticmethod
     def save_article(article: dict, category: str, api_source: str = "unknown") -> bool:
         conn = None
@@ -66,7 +57,6 @@ class NewsModel:
             conn = get_db()
             cur = conn.cursor()
 
-            # ✅ TIMEZONE-AWARE DATETIME
             expires = datetime.now(pytz.UTC) + timedelta(days=Config.NEWS_EXPIRATION_DAYS)
 
             title = (article.get("title") or "").strip()
@@ -76,10 +66,8 @@ class NewsModel:
 
             published_raw = article.get("publishedAt")
 
-            # Yayın tarihi normalize edilmesi - TIMEZONE-AWARE
             published = None
             if isinstance(published_raw, datetime):
-                # Eğer naive ise UTC ekle
                 if published_raw.tzinfo is None:
                     published = published_raw.replace(tzinfo=pytz.UTC)
                 else:
@@ -91,7 +79,6 @@ class NewsModel:
                     try:
                         from dateutil import parser
                         parsed = parser.parse(published_raw)
-                        # Naive ise UTC ekle
                         if parsed.tzinfo is None:
                             published = parsed.replace(tzinfo=pytz.UTC)
                         else:
@@ -101,7 +88,6 @@ class NewsModel:
             else:
                 published = datetime.now(pytz.UTC)
 
-            # Zorunlu alan kontrolü
             if not title or not url:
                 logger.warning("⚠️  Boş title veya url yüzünden haber atlandı")
                 return False
@@ -144,9 +130,6 @@ class NewsModel:
             if conn:
                 put_db(conn)
 
-    # -------------------------------------------------------
-    # BİR ÇOK HABERİ TOPLU KAYDETME
-    # -------------------------------------------------------
     @staticmethod
     def save_bulk(articles: list, category: str, api_source: str = "unknown"):
         stats = {"saved": 0, "duplicates": 0, "errors": 0}
@@ -172,9 +155,6 @@ class NewsModel:
 
         return stats
 
-    # -------------------------------------------------------
-    # SÜRESİ GEÇEN HABERLERİ SİLME
-    # -------------------------------------------------------
     @staticmethod
     def delete_expired():
         conn = None
@@ -201,19 +181,16 @@ class NewsModel:
             if conn:
                 put_db(conn)
 
-    # -------------------------------------------------------
-    # HABER GETİRME (ANDROID TARAFI) - CURSOR FİX
-    # -------------------------------------------------------
     @staticmethod
     def get_news(category: str = None, limit: int = 50, offset: int = 0):
         conn = None
         try:
             conn = get_db()
-            cur = conn.cursor()  # Normal cursor yeterli - tuple indexing çalışır
+            cur = conn.cursor()
 
             if category:
                 query = """
-                    SELECT id, category, title, description,
+                    SELECT id, category, title, description, full_content,
                            url, image, source, published, saved_at
                     FROM news
                     WHERE category = %s AND expires_at > NOW()
@@ -224,7 +201,7 @@ class NewsModel:
                 logger.debug(f"🔍 Query: category={category}, limit={limit}, offset={offset}")
             else:
                 query = """
-                    SELECT id, category, title, description,
+                    SELECT id, category, title, description, full_content,
                            url, image, source, published, saved_at
                     FROM news
                     WHERE expires_at > NOW()
@@ -236,7 +213,6 @@ class NewsModel:
 
             rows = cur.fetchall()
             
-            # ✅ DETAYLI LOG
             logger.info(f"📊 Query sonucu: {len(rows)} haber bulundu")
             
             if rows:
@@ -251,11 +227,12 @@ class NewsModel:
                         "category": r[1],
                         "title": r[2],
                         "description": r[3],
-                        "url": r[4],
-                        "image": r[5],
-                        "source": r[6],
-                        "published": r[7].isoformat() if r[7] else None,
-                        "saved_at": r[8].isoformat() if r[8] else None,
+                        "full_content": r[4],
+                        "url": r[5],
+                        "image": r[6],
+                        "source": r[7],
+                        "published": r[8].isoformat() if r[8] else None,
+                        "saved_at": r[9].isoformat() if r[9] else None,
                     })
                 except (KeyError, IndexError, TypeError) as e:
                     logger.error(f"❌ Satır parse hatası: {e}, row type: {type(r)}, row: {r}")
@@ -265,7 +242,6 @@ class NewsModel:
             return data
 
         except Exception as e:
-            # ✅ FULL EXCEPTION LOG
             logger.exception(f"❌ Haber getirme hatası")
             return []
         finally:
@@ -273,9 +249,6 @@ class NewsModel:
                 cur.close() if 'cur' in locals() else None
                 put_db(conn)
 
-    # -------------------------------------------------------
-    # CATEGORY COUNT - FİX
-    # -------------------------------------------------------
     @staticmethod
     def count_by_category(category: str):
         conn = None
@@ -306,9 +279,6 @@ class NewsModel:
                 cur.close() if 'cur' in locals() else None
                 put_db(conn)
 
-    # -------------------------------------------------------
-    # TOTAL COUNT - FİX
-    # -------------------------------------------------------
     @staticmethod
     def get_total_count():
         conn = None
@@ -336,9 +306,6 @@ class NewsModel:
                 cur.close() if 'cur' in locals() else None
                 put_db(conn)
 
-    # -------------------------------------------------------
-    # EN SON EKLENME ZAMANI - FİX
-    # -------------------------------------------------------
     @staticmethod
     def get_latest_update_time():
         conn = None
@@ -361,6 +328,67 @@ class NewsModel:
         except Exception as e:
             logger.exception(f"❌ get_latest_update_time hatası")
             return None
+        finally:
+            if conn:
+                cur.close() if 'cur' in locals() else None
+                put_db(conn)
+
+    @staticmethod
+    def get_articles_without_content(limit: int = 20):
+        conn = None
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT id, title, url, source
+                FROM news
+                WHERE full_content IS NULL AND expires_at > NOW()
+                ORDER BY saved_at DESC
+                LIMIT %s;
+            """, (limit,))
+            
+            rows = cur.fetchall()
+            
+            articles = []
+            for r in rows:
+                articles.append({
+                    "id": r[0],
+                    "title": r[1],
+                    "url": r[2],
+                    "source": r[3]
+                })
+            
+            return articles
+            
+        except Exception as e:
+            logger.exception("❌ get_articles_without_content hatası")
+            return []
+        finally:
+            if conn:
+                cur.close() if 'cur' in locals() else None
+                put_db(conn)
+
+    @staticmethod
+    def update_full_content(article_id: int, full_content: str):
+        conn = None
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            
+            cur.execute("""
+                UPDATE news
+                SET full_content = %s
+                WHERE id = %s;
+            """, (full_content, article_id))
+            
+            conn.commit()
+            logger.debug(f"✅ full_content güncellendi (ID: {article_id})")
+            
+        except Exception as e:
+            logger.error(f"❌ update_full_content hatası: {e}")
+            if conn:
+                conn.rollback()
         finally:
             if conn:
                 cur.close() if 'cur' in locals() else None
