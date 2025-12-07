@@ -1,6 +1,5 @@
 import psycopg2
 from psycopg2 import pool
-from psycopg2.extras import RealDictCursor
 from config import Config
 import logging
 import time
@@ -34,8 +33,8 @@ def init_connection_pool():
         _connection_pool = psycopg2.pool.SimpleConnectionPool(
             minconn=1,      # Minimum 1 bağlantı
             maxconn=5,      # Maksimum 5 bağlantı (Render free tier limiti)
-            dsn=Config.DB_URL,
-            cursor_factory=RealDictCursor
+            dsn=Config.DB_URL
+            # ✅ cursor_factory KALDIRILDI! Normal tuple cursor kullanacağız
         )
         
         logger.info("✅ PostgreSQL connection pool oluşturuldu")
@@ -79,10 +78,7 @@ def get_db():
         logger.error(f"❌ Connection pool hatası: {e}")
         # Pool dolu → yeni bağlantı aç
         try:
-            conn = psycopg2.connect(
-                Config.DB_URL,
-                cursor_factory=RealDictCursor
-            )
+            conn = psycopg2.connect(Config.DB_URL)
             logger.warning("⚠️  Pool dolu, direkt bağlantı açıldı")
             return conn
         except Exception as direct_error:
@@ -98,10 +94,7 @@ def get_db():
                 logger.info(f"🔄 Yeniden deneniyor... ({attempt + 1}/{Config.MAX_RETRIES})")
                 time.sleep(Config.RETRY_DELAY)
                 
-                conn = psycopg2.connect(
-                    Config.DB_URL,
-                    cursor_factory=RealDictCursor
-                )
+                conn = psycopg2.connect(Config.DB_URL)
                 logger.info("✅ Bağlantı başarılı (retry)")
                 return conn
                 
@@ -168,6 +161,7 @@ def test_connection():
         cur = conn.cursor()
         cur.execute("SELECT 1;")
         result = cur.fetchone()
+        cur.close()
         put_db(conn)
         
         if result:
