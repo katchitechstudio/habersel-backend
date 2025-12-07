@@ -26,15 +26,17 @@ def scrape_article_content(url: str) -> str:
         article.download()
         article.parse()
         
-        full_text = article.text
+        full_text = article.text.strip()
         
-        if len(full_text) < 200:
+        if len(full_text) < 100:
+            logger.warning(f"⚠️ Çok kısa içerik: {len(full_text)} karakter")
             return None
         
+        logger.debug(f"✅ {len(full_text)} karakter çekildi")
         return full_text
         
     except Exception as e:
-        logger.error(f"❌ Scrape hatası ({url}): {e}")
+        logger.error(f"❌ Scrape hatası: {e}")
         return None
 
 
@@ -54,21 +56,24 @@ def scrape_all_pending_articles():
     
     for idx, article in enumerate(pending_articles, 1):
         try:
-            logger.info(f"🔄 [{idx}/{len(pending_articles)}] Scraping: {article['title'][:50]}...")
+            logger.info(f"🔄 [{idx}/{len(pending_articles)}] {article['title'][:60]}...")
             
             full_content = scrape_article_content(article['url'])
             
             if full_content:
                 NewsModel.update_full_content(article['id'], full_content)
                 success += 1
-                logger.info(f"   ✅ Başarılı! ({len(full_content)} karakter)")
+                
+                char_count = len(full_content)
+                word_count = len(full_content.split())
+                logger.info(f"   ✅ Başarılı! {char_count} karakter, ~{word_count} kelime")
             else:
                 failed += 1
-                logger.warning(f"   ⚠️ İçerik çok kısa veya scrape edilemedi")
+                logger.warning(f"   ⚠️ İçerik alınamadı")
             
             if idx < len(pending_articles):
                 wait_time = random.randint(20, 35)
-                logger.info(f"   ⏰ {wait_time} saniye bekleniyor...")
+                logger.debug(f"   ⏰ {wait_time} saniye bekleniyor...")
                 time.sleep(wait_time)
             
         except Exception as e:
