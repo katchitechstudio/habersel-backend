@@ -4,10 +4,12 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from models.news_models import NewsModel
 from services.scheduler import (
+    midnight_job,
+    early_morning_job,
     morning_job,
     noon_job,
+    afternoon_job,
     evening_job,
-    night_job,
     cleanup_job
 )
 from config import Config
@@ -17,23 +19,16 @@ import logging
 from datetime import datetime
 import pytz
 
-# ====================================================
-# LOGGING
-# ====================================================
 logging.basicConfig(
     level=getattr(logging, Config.LOG_LEVEL),
     format=Config.LOG_FORMAT
 )
 logger = logging.getLogger(__name__)
 
-# ====================================================
-# LAST-RUNS DOSYASI (CRON TEKRARINI ENGELLEME)
-# ====================================================
 LAST_RUNS_FILE = "last_runs.json"
 
 
 def load_last_runs():
-    """Son çalışma zamanlarını yükler"""
     if not os.path.exists(LAST_RUNS_FILE):
         return {}
     try:
@@ -45,7 +40,6 @@ def load_last_runs():
 
 
 def save_last_runs(data):
-    """Son çalışma zamanlarını kaydeder"""
     try:
         with open(LAST_RUNS_FILE, "w") as f:
             json.dump(data, f, indent=2)
@@ -54,28 +48,16 @@ def save_last_runs(data):
 
 
 def should_run(task_name, hour_utc):
-    """
-    Bu görevi bu saatte çalıştırmalı mı kontrol eder.
-    
-    Args:
-        task_name: Görev adı (morning, noon, evening, night, cleanup)
-        hour_utc: UTC saat
-    
-    Returns:
-        bool: Çalıştırılmalı mı?
-    """
     now_utc = datetime.now(pytz.UTC)
     today = now_utc.strftime("%Y-%m-%d")
     current_hour_str = f"{today}_{hour_utc:02d}"
 
     runs = load_last_runs()
 
-    # Bugün bu saatte zaten çalıştı mı?
     if runs.get(task_name) == current_hour_str:
         logger.info(f"⏭️  {task_name} bugün UTC {hour_utc:02d}:00'de zaten çalıştı")
         return False
 
-    # Çalıştırılacak, kaydet
     runs[task_name] = current_hour_str
     save_last_runs(runs)
 
@@ -83,33 +65,24 @@ def should_run(task_name, hour_utc):
     return True
 
 
-# ====================================================
-# UYGULAMA OLUŞTURMA
-# ====================================================
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
-    # CORS
     CORS(app, resources={r"/*": {"origins": "*"}})
 
-    # Rate Limiter
     limiter = Limiter(
         key_func=get_remote_address,
         default_limits=[f"{Config.RATE_LIMIT_PER_MINUTE} per minute"],
         app=app
     )
 
-    # ====================================================
-    # DATABASE TABLE
-    # ====================================================
     try:
         NewsModel.create_table()
         logger.info("✅ Database tabloları hazır")
     except Exception as e:
         logger.error(f"❌ DB tablo hatası: {e}")
 
-    # SystemInfo tablosu oluştur
     try:
         from models.system_models import SystemModel
         SystemModel.init_table()
@@ -117,13 +90,6 @@ def create_app():
     except Exception as e:
         logger.error(f"❌ SystemInfo tablo hatası: {e}")
 
-    # ====================================================
-    # ENDPOINT'LER
-    # ====================================================
-
-    # ---------------------------
-    # HEALTH CHECK
-    # ---------------------------
     @app.route("/health", methods=["GET", "HEAD"])
     def health():
         return jsonify({
@@ -132,20 +98,15 @@ def create_app():
             "timestamp": datetime.now(pytz.UTC).isoformat()
         }), 200
 
-    # ---------------------------
-    # CRON (FINAL - UTC BAZLI)
-    # ---------------------------
     @app.route("/cron", methods=["GET", "HEAD"])
     def cron():
         key = request.args.get("key")
         if key != Config.CRON_SECRET:
             return jsonify({"error": "unauthorized"}), 401
         
-        # ✅ UTC saati al (Render UTC'de çalışıyor)
         now_utc = datetime.now(pytz.UTC)
         hour_utc = now_utc.hour
         
-        # Türkiye saati sadece log için
         tz_tr = pytz.timezone(Config.TIMEZONE)
         now_tr = now_utc.astimezone(tz_tr)
         
@@ -153,22 +114,48 @@ def create_app():
         
         results = []
         
-        # ✅ SABAH 05:00-05:59 UTC = TR 08:00-08:59
-        if 5 <= hour_utc < 6:
+        if 21 <= hour_utc < 22:
+            if should_run("midnight", 21):
+                try:
+                    result = midnight_job()
+                    if not result or not result.get("skipped"):
+                        results.append("midnight ✅")
+                    else:
+                        results.append("midnight ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ midnight_job hatası: {e}")
+                    results.append(f"midnight ❌ {str(e)}")
+            else:
+                results.append("midnight ⏭️ (zaten çalıştı)")
+        
+        elif 1 <= hour_utc < 2:
+            if should_run("early_morning", 1):
+                try:
+                    result = early_morning_job()
+                    if not result or not result.get("skipped"):
+                        results.append("early_morning ✅")
+                    else:
+                        results.append("early_morning ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ early_morning_job hatası: {e}")
+                    results.append(f"early_morning ❌ {str(e)}")
+            else:
+                results.append("early_morning ⏭️ (zaten çalıştı)")
+        
+        elif 5 <= hour_utc < 6:
             if should_run("morning", 5):
                 try:
                     result = morning_job()
                     if not result or not result.get("skipped"):
                         results.append("morning ✅")
                     else:
-                        results.append("morning ⏭️ (atlandı)")
+                        results.append("morning ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ morning_job hatası: {e}")
                     results.append(f"morning ❌ {str(e)}")
             else:
                 results.append("morning ⏭️ (zaten çalıştı)")
         
-        # ✅ ÖĞLE 09:00-09:59 UTC = TR 12:00-12:59
         elif 9 <= hour_utc < 10:
             if should_run("noon", 9):
                 try:
@@ -176,44 +163,41 @@ def create_app():
                     if not result or not result.get("skipped"):
                         results.append("noon ✅")
                     else:
-                        results.append("noon ⏭️ (atlandı)")
+                        results.append("noon ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ noon_job hatası: {e}")
                     results.append(f"noon ❌ {str(e)}")
             else:
                 results.append("noon ⏭️ (zaten çalıştı)")
         
-        # ✅ AKŞAM 15:00-15:59 UTC = TR 18:00-18:59
-        elif 15 <= hour_utc < 16:
-            if should_run("evening", 15):
+        elif 13 <= hour_utc < 14:
+            if should_run("afternoon", 13):
+                try:
+                    result = afternoon_job()
+                    if not result or not result.get("skipped"):
+                        results.append("afternoon ✅")
+                    else:
+                        results.append("afternoon ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ afternoon_job hatası: {e}")
+                    results.append(f"afternoon ❌ {str(e)}")
+            else:
+                results.append("afternoon ⏭️ (zaten çalıştı)")
+        
+        elif 17 <= hour_utc < 18:
+            if should_run("evening", 17):
                 try:
                     result = evening_job()
                     if not result or not result.get("skipped"):
                         results.append("evening ✅")
                     else:
-                        results.append("evening ⏭️ (atlandı)")
+                        results.append("evening ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ evening_job hatası: {e}")
                     results.append(f"evening ❌ {str(e)}")
             else:
                 results.append("evening ⏭️ (zaten çalıştı)")
         
-        # ✅ GECE 20:00-20:59 UTC = TR 23:00-23:59
-        elif 20 <= hour_utc < 21:
-            if should_run("night", 20):
-                try:
-                    result = night_job()
-                    if not result or not result.get("skipped"):
-                        results.append("night ✅")
-                    else:
-                        results.append("night ⏭️ (atlandı)")
-                except Exception as e:
-                    logger.exception(f"❌ night_job hatası: {e}")
-                    results.append(f"night ❌ {str(e)}")
-            else:
-                results.append("night ⏭️ (zaten çalıştı)")
-        
-        # ✅ TEMİZLİK 00:00-00:59 UTC = TR 03:00-03:59
         elif hour_utc == 0:
             if should_run("cleanup", 0):
                 try:
@@ -221,14 +205,13 @@ def create_app():
                     if not result or not result.get("skipped"):
                         results.append("cleanup ✅")
                     else:
-                        results.append("cleanup ⏭️ (atlandı)")
+                        results.append("cleanup ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ cleanup_job hatası: {e}")
                     results.append(f"cleanup ❌ {str(e)}")
             else:
                 results.append("cleanup ⏭️ (zaten çalıştı)")
         
-        # DİĞER SAATLER
         else:
             results.append(f"⏸️  UTC {hour_utc:02d}:xx (TR {now_tr.hour:02d}:xx) - Planlanmış görev yok")
         
@@ -240,9 +223,6 @@ def create_app():
             "results": results
         }), 200
 
-    # ---------------------------
-    # HABER GETİRME
-    # ---------------------------
     @app.route("/news", methods=["GET"])
     @limiter.limit("60 per minute")
     def get_news():
@@ -263,9 +243,6 @@ def create_app():
             logger.exception("❌ /news hatası")
             return jsonify({"success": False, "error": str(e)}), 500
 
-    # ---------------------------
-    # SON GÜNCELLEME
-    # ---------------------------
     @app.route("/news/last-update", methods=["GET"])
     def last_update():
         try:
@@ -279,9 +256,6 @@ def create_app():
             logger.exception("❌ /news/last-update")
             return jsonify({"success": False, "error": str(e)}), 500
 
-    # ---------------------------
-    # KATEGORİ İSTATİSTİK
-    # ---------------------------
     @app.route("/news/stats", methods=["GET"])
     def stats():
         try:
@@ -291,9 +265,6 @@ def create_app():
             logger.exception("❌ /news/stats")
             return jsonify({"success": False, "error": str(e)}), 500
 
-    # ---------------------------
-    # API Kullanım
-    # ---------------------------
     @app.route("/api/usage", methods=["GET"])
     def api_usage():
         try:
@@ -308,9 +279,6 @@ def create_app():
             logger.exception("❌ /api/usage")
             return jsonify({"success": False, "error": str(e)}), 500
 
-    # ---------------------------
-    # 404
-    # ---------------------------
     @app.errorhandler(404)
     def error_404(e):
         return jsonify({
@@ -325,9 +293,6 @@ def create_app():
             ]
         }), 404
 
-    # ---------------------------
-    # 500
-    # ---------------------------
     @app.errorhandler(500)
     def error_500(e):
         return jsonify({
@@ -338,9 +303,6 @@ def create_app():
     return app
 
 
-# ====================================================
-# GUNICORN ENTRY POINT
-# ====================================================
 app = create_app()
 
 if __name__ == "__main__":
