@@ -1,14 +1,28 @@
 from newspaper import Article
 from models.news_models import NewsModel
 import time
+import random
 import logging
 
 logger = logging.getLogger(__name__)
 
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
+]
+
 
 def scrape_article_content(url: str) -> str:
     try:
+        user_agent = random.choice(USER_AGENTS)
+        
         article = Article(url, language='tr')
+        article.config.browser_user_agent = user_agent
+        article.config.request_timeout = 15
+        
         article.download()
         article.parse()
         
@@ -38,9 +52,9 @@ def scrape_all_pending_articles():
     success = 0
     failed = 0
     
-    for article in pending_articles:
+    for idx, article in enumerate(pending_articles, 1):
         try:
-            logger.info(f"🔄 Scraping: {article['title'][:50]}...")
+            logger.info(f"🔄 [{idx}/{len(pending_articles)}] Scraping: {article['title'][:50]}...")
             
             full_content = scrape_article_content(article['url'])
             
@@ -52,7 +66,10 @@ def scrape_all_pending_articles():
                 failed += 1
                 logger.warning(f"   ⚠️ İçerik çok kısa veya scrape edilemedi")
             
-            time.sleep(5)
+            if idx < len(pending_articles):
+                wait_time = random.randint(20, 35)
+                logger.info(f"   ⏰ {wait_time} saniye bekleniyor...")
+                time.sleep(wait_time)
             
         except Exception as e:
             failed += 1
