@@ -2,7 +2,8 @@ from datetime import datetime, timedelta
 from config import Config
 from models.db import get_db, put_db
 import logging
-import pytz  # ✅ PYTZ IMPORT
+import pytz
+import psycopg2.extras  # ✅ DictCursor için
 
 logger = logging.getLogger(__name__)
 
@@ -201,14 +202,14 @@ class NewsModel:
                 put_db(conn)
 
     # -------------------------------------------------------
-    # HABER GETİRME (ANDROID TARAFI) - DÜZELTİLMİŞ
+    # HABER GETİRME (ANDROID TARAFI) - CURSOR FİX
     # -------------------------------------------------------
     @staticmethod
     def get_news(category: str = None, limit: int = 50, offset: int = 0):
         conn = None
         try:
             conn = get_db()
-            cur = conn.cursor()
+            cur = conn.cursor()  # Normal cursor yeterli - tuple indexing çalışır
 
             if category:
                 query = """
@@ -237,21 +238,30 @@ class NewsModel:
             
             # ✅ DETAYLI LOG
             logger.info(f"📊 Query sonucu: {len(rows)} haber bulundu")
+            
+            if rows:
+                logger.debug(f"🔍 İlk satır tipi: {type(rows[0])}")
+                logger.debug(f"🔍 İlk satır: {rows[0]}")
 
             data = []
             for r in rows:
-                data.append({
-                    "id": r[0],
-                    "category": r[1],
-                    "title": r[2],
-                    "description": r[3],
-                    "url": r[4],
-                    "image": r[5],
-                    "source": r[6],
-                    "published": r[7].isoformat() if r[7] else None,
-                    "saved_at": r[8].isoformat() if r[8] else None,
-                })
+                try:
+                    data.append({
+                        "id": r[0],
+                        "category": r[1],
+                        "title": r[2],
+                        "description": r[3],
+                        "url": r[4],
+                        "image": r[5],
+                        "source": r[6],
+                        "published": r[7].isoformat() if r[7] else None,
+                        "saved_at": r[8].isoformat() if r[8] else None,
+                    })
+                except (KeyError, IndexError, TypeError) as e:
+                    logger.error(f"❌ Satır parse hatası: {e}, row type: {type(r)}, row: {r}")
+                    raise
 
+            logger.info(f"✅ {len(data)} haber parse edildi")
             return data
 
         except Exception as e:
@@ -260,10 +270,11 @@ class NewsModel:
             return []
         finally:
             if conn:
+                cur.close() if 'cur' in locals() else None
                 put_db(conn)
 
     # -------------------------------------------------------
-    # CATEGORY COUNT (DÜZELTİLMİŞ)
+    # CATEGORY COUNT - FİX
     # -------------------------------------------------------
     @staticmethod
     def count_by_category(category: str):
@@ -278,22 +289,25 @@ class NewsModel:
             """, (category,))
             
             result = cur.fetchone()
-            cur.close()
             
-            count = result[0] if result else 0
-            logger.debug(f"📊 {category}: {count} haber")
-            
-            return count
+            if result:
+                count = result[0]
+                logger.debug(f"📊 {category}: {count} haber")
+                return count
+            else:
+                logger.debug(f"📊 {category}: 0 haber (result=None)")
+                return 0
             
         except Exception as e:
             logger.exception(f"❌ count_by_category hatası")
             return 0
         finally:
             if conn:
+                cur.close() if 'cur' in locals() else None
                 put_db(conn)
 
     # -------------------------------------------------------
-    # TOTAL COUNT (DÜZELTİLMİŞ)
+    # TOTAL COUNT - FİX
     # -------------------------------------------------------
     @staticmethod
     def get_total_count():
@@ -305,22 +319,25 @@ class NewsModel:
             cur.execute("SELECT COUNT(*) FROM news WHERE expires_at > NOW();")
             
             result = cur.fetchone()
-            cur.close()
             
-            count = result[0] if result else 0
-            logger.debug(f"📊 Toplam: {count} haber")
-            
-            return count
+            if result:
+                count = result[0]
+                logger.debug(f"📊 Toplam: {count} haber")
+                return count
+            else:
+                logger.debug(f"📊 Toplam: 0 haber (result=None)")
+                return 0
             
         except Exception as e:
             logger.exception(f"❌ get_total_count hatası")
             return 0
         finally:
             if conn:
+                cur.close() if 'cur' in locals() else None
                 put_db(conn)
 
     # -------------------------------------------------------
-    # EN SON EKLENME ZAMANI (DÜZELTİLMİŞ)
+    # EN SON EKLENME ZAMANI - FİX
     # -------------------------------------------------------
     @staticmethod
     def get_latest_update_time():
@@ -332,20 +349,19 @@ class NewsModel:
             cur.execute("SELECT MAX(saved_at) FROM news;")
             
             result = cur.fetchone()
-            cur.close()
             
-            timestamp = result[0] if result and result[0] else None
-            
-            if timestamp:
+            if result and result[0]:
+                timestamp = result[0]
                 logger.debug(f"📅 Son güncelleme: {timestamp.isoformat()}")
+                return timestamp
             else:
                 logger.debug("📅 Henüz haber yok")
-            
-            return timestamp
+                return None
             
         except Exception as e:
             logger.exception(f"❌ get_latest_update_time hatası")
             return None
         finally:
             if conn:
+                cur.close() if 'cur' in locals() else None
                 put_db(conn)
