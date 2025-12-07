@@ -5,6 +5,7 @@ from config import Config
 from datetime import datetime
 import pytz
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,12 @@ def run_update(label: str, slot_name: str = None):
         else:
             stats = NewsService.update_all_categories()
         
-        logger.info("🔥 Scraping başlatılıyor...")
-        scrape_all_pending_articles()
+        logger.info("🔥 Scraping arka planda başlatılıyor...")
+        scraping_thread = threading.Thread(
+            target=scrape_all_pending_articles,
+            daemon=True
+        )
+        scraping_thread.start()
         
         end_time_utc = datetime.now(pytz.UTC)
         duration = (end_time_utc - now_utc).total_seconds()
@@ -73,6 +78,7 @@ def run_update(label: str, slot_name: str = None):
         logger.info("=" * 75)
         logger.info(f"✅ [{label}] GÜNCELLEME TAMAMLANDI")
         logger.info(f"⏱️  Toplam Süre: {duration:.2f} saniye")
+        logger.info(f"🔄 Scraping arka planda devam ediyor...")
         logger.info("=" * 75 + "\n")
         
         return stats
