@@ -15,7 +15,7 @@ USER_AGENTS = [
 ]
 
 
-def scrape_article_content(url: str) -> str:
+def scrape_article_content(url: str):
     try:
         user_agent = random.choice(USER_AGENTS)
         
@@ -30,14 +30,19 @@ def scrape_article_content(url: str) -> str:
         
         if len(full_text) < 100:
             logger.warning(f"⚠️ Çok kısa içerik: {len(full_text)} karakter")
-            return None
+            return None, None
+        
+        scraped_image = article.top_image if article.top_image else None
         
         logger.debug(f"✅ {len(full_text)} karakter çekildi")
-        return full_text
+        if scraped_image:
+            logger.debug(f"🖼️ Görsel bulundu: {scraped_image}")
+        
+        return full_text, scraped_image
         
     except Exception as e:
         logger.error(f"❌ Scrape hatası: {e}")
-        return None
+        return None, None
 
 
 def scrape_all_pending_articles():
@@ -58,15 +63,28 @@ def scrape_all_pending_articles():
         try:
             logger.info(f"🔄 [{idx}/{len(pending_articles)}] {article['title'][:60]}...")
             
-            full_content = scrape_article_content(article['url'])
+            api_image = article.get('image')
+            full_content, scraped_image = scrape_article_content(article['url'])
             
             if full_content:
-                NewsModel.update_full_content(article['id'], full_content)
+                final_image = scraped_image if scraped_image else api_image
+                
+                NewsModel.update_full_content(
+                    article['id'], 
+                    full_content, 
+                    final_image
+                )
                 success += 1
                 
                 char_count = len(full_content)
                 word_count = len(full_content.split())
-                logger.info(f"   ✅ Başarılı! {char_count} karakter, ~{word_count} kelime")
+                
+                if scraped_image:
+                    logger.info(f"   ✅ {char_count} karakter, ~{word_count} kelime (Scraper görseli)")
+                elif api_image:
+                    logger.info(f"   ✅ {char_count} karakter, ~{word_count} kelime (API görseli yedek)")
+                else:
+                    logger.info(f"   ✅ {char_count} karakter, ~{word_count} kelime (görsel yok)")
             else:
                 failed += 1
                 logger.warning(f"   ⚠️ İçerik alınamadı")
