@@ -37,6 +37,18 @@ class NewsModel:
                 CREATE INDEX IF NOT EXISTS idx_news_expires_at ON news(expires_at);
                 CREATE INDEX IF NOT EXISTS idx_news_published ON news(published DESC);
             """)
+            
+            cur.execute("""
+                DO $$ 
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='news' AND column_name='full_content'
+                    ) THEN
+                        ALTER TABLE news ADD COLUMN full_content TEXT;
+                    END IF;
+                END $$;
+            """)
 
             conn.commit()
             logger.info("✅ news tablosu hazır")
