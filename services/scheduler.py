@@ -82,6 +82,14 @@ def run_update(label: str, slot_name: str = None):
         raise
 
 
+def midnight_job():
+    return run_update("GECE 00:00", slot_name="midnight")
+
+
+def early_morning_job():
+    return run_update("SABAH ERKENİ 04:00", slot_name="early_morning")
+
+
 def morning_job():
     return run_update("SABAH 08:00", slot_name="morning")
 
@@ -90,12 +98,12 @@ def noon_job():
     return run_update("ÖĞLE 12:00", slot_name="noon")
 
 
+def afternoon_job():
+    return run_update("İKİNDİ 16:00", slot_name="afternoon")
+
+
 def evening_job():
-    return run_update("AKŞAM 18:00", slot_name="evening")
-
-
-def night_job():
-    return run_update("GECE 23:00", slot_name="night")
+    return run_update("AKŞAM 20:00", slot_name="evening")
 
 
 def cleanup_job():
