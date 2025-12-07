@@ -341,7 +341,7 @@ class NewsModel:
             cur = conn.cursor()
             
             cur.execute("""
-                SELECT id, title, url, source
+                SELECT id, title, url, source, image
                 FROM news
                 WHERE full_content IS NULL AND expires_at > NOW()
                 ORDER BY saved_at DESC
@@ -356,7 +356,8 @@ class NewsModel:
                     "id": r[0],
                     "title": r[1],
                     "url": r[2],
-                    "source": r[3]
+                    "source": r[3],
+                    "image": r[4]
                 })
             
             return articles
@@ -370,20 +371,26 @@ class NewsModel:
                 put_db(conn)
 
     @staticmethod
-    def update_full_content(article_id: int, full_content: str):
+    def update_full_content(article_id: int, full_content: str, image_url: str = None):
         conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
             
-            cur.execute("""
-                UPDATE news
-                SET full_content = %s
-                WHERE id = %s;
-            """, (full_content, article_id))
+            if image_url:
+                cur.execute("""
+                    UPDATE news
+                    SET full_content = %s, image = %s
+                    WHERE id = %s;
+                """, (full_content, image_url, article_id))
+            else:
+                cur.execute("""
+                    UPDATE news
+                    SET full_content = %s
+                    WHERE id = %s;
+                """, (full_content, article_id))
             
             conn.commit()
-            logger.debug(f"✅ full_content güncellendi (ID: {article_id})")
             
         except Exception as e:
             logger.error(f"❌ update_full_content hatası: {e}")
