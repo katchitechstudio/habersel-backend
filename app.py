@@ -3,13 +3,20 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from models.news_models import NewsModel
+from routes.news_routes import news_bp
 from services.scheduler import (
     midnight_job,
+    late_night_job,
     early_morning_job,
+    dawn_job,
     morning_job,
+    mid_morning_job,
     noon_job,
     afternoon_job,
+    late_afternoon_job,
+    early_evening_job,
     evening_job,
+    night_job,
     cleanup_job
 )
 from config import Config
@@ -90,6 +97,8 @@ def create_app():
     except Exception as e:
         logger.error(f"❌ SystemInfo tablo hatası: {e}")
 
+    app.register_blueprint(news_bp)
+
     @app.route("/health", methods=["GET", "HEAD"])
     def health():
         return jsonify({
@@ -124,9 +133,23 @@ def create_app():
                         results.append("midnight ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ midnight_job hatası: {e}")
-                    results.append(f"midnight ❌ {str(e)}")
+                    results.append(f"midnight ❌")
             else:
-                results.append("midnight ⏭️ (zaten çalıştı)")
+                results.append("midnight ⏭️")
+        
+        elif 23 <= hour_utc < 24:
+            if should_run("late_night", 23):
+                try:
+                    result = late_night_job()
+                    if not result or not result.get("skipped"):
+                        results.append("late_night ✅")
+                    else:
+                        results.append("late_night ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ late_night_job hatası: {e}")
+                    results.append(f"late_night ❌")
+            else:
+                results.append("late_night ⏭️")
         
         elif 1 <= hour_utc < 2:
             if should_run("early_morning", 1):
@@ -138,9 +161,23 @@ def create_app():
                         results.append("early_morning ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ early_morning_job hatası: {e}")
-                    results.append(f"early_morning ❌ {str(e)}")
+                    results.append(f"early_morning ❌")
             else:
-                results.append("early_morning ⏭️ (zaten çalıştı)")
+                results.append("early_morning ⏭️")
+        
+        elif 3 <= hour_utc < 4:
+            if should_run("dawn", 3):
+                try:
+                    result = dawn_job()
+                    if not result or not result.get("skipped"):
+                        results.append("dawn ✅")
+                    else:
+                        results.append("dawn ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ dawn_job hatası: {e}")
+                    results.append(f"dawn ❌")
+            else:
+                results.append("dawn ⏭️")
         
         elif 5 <= hour_utc < 6:
             if should_run("morning", 5):
@@ -152,9 +189,23 @@ def create_app():
                         results.append("morning ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ morning_job hatası: {e}")
-                    results.append(f"morning ❌ {str(e)}")
+                    results.append(f"morning ❌")
             else:
-                results.append("morning ⏭️ (zaten çalıştı)")
+                results.append("morning ⏭️")
+        
+        elif 7 <= hour_utc < 8:
+            if should_run("mid_morning", 7):
+                try:
+                    result = mid_morning_job()
+                    if not result or not result.get("skipped"):
+                        results.append("mid_morning ✅")
+                    else:
+                        results.append("mid_morning ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ mid_morning_job hatası: {e}")
+                    results.append(f"mid_morning ❌")
+            else:
+                results.append("mid_morning ⏭️")
         
         elif 9 <= hour_utc < 10:
             if should_run("noon", 9):
@@ -166,12 +217,12 @@ def create_app():
                         results.append("noon ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ noon_job hatası: {e}")
-                    results.append(f"noon ❌ {str(e)}")
+                    results.append(f"noon ❌")
             else:
-                results.append("noon ⏭️ (zaten çalıştı)")
+                results.append("noon ⏭️")
         
-        elif 13 <= hour_utc < 14:
-            if should_run("afternoon", 13):
+        elif 11 <= hour_utc < 12:
+            if should_run("afternoon", 11):
                 try:
                     result = afternoon_job()
                     if not result or not result.get("skipped"):
@@ -180,9 +231,37 @@ def create_app():
                         results.append("afternoon ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ afternoon_job hatası: {e}")
-                    results.append(f"afternoon ❌ {str(e)}")
+                    results.append(f"afternoon ❌")
             else:
-                results.append("afternoon ⏭️ (zaten çalıştı)")
+                results.append("afternoon ⏭️")
+        
+        elif 13 <= hour_utc < 14:
+            if should_run("late_afternoon", 13):
+                try:
+                    result = late_afternoon_job()
+                    if not result or not result.get("skipped"):
+                        results.append("late_afternoon ✅")
+                    else:
+                        results.append("late_afternoon ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ late_afternoon_job hatası: {e}")
+                    results.append(f"late_afternoon ❌")
+            else:
+                results.append("late_afternoon ⏭️")
+        
+        elif 15 <= hour_utc < 16:
+            if should_run("early_evening", 15):
+                try:
+                    result = early_evening_job()
+                    if not result or not result.get("skipped"):
+                        results.append("early_evening ✅")
+                    else:
+                        results.append("early_evening ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ early_evening_job hatası: {e}")
+                    results.append(f"early_evening ❌")
+            else:
+                results.append("early_evening ⏭️")
         
         elif 17 <= hour_utc < 18:
             if should_run("evening", 17):
@@ -194,9 +273,23 @@ def create_app():
                         results.append("evening ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ evening_job hatası: {e}")
-                    results.append(f"evening ❌ {str(e)}")
+                    results.append(f"evening ❌")
             else:
-                results.append("evening ⏭️ (zaten çalıştı)")
+                results.append("evening ⏭️")
+        
+        elif 19 <= hour_utc < 20:
+            if should_run("night", 19):
+                try:
+                    result = night_job()
+                    if not result or not result.get("skipped"):
+                        results.append("night ✅")
+                    else:
+                        results.append("night ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ night_job hatası: {e}")
+                    results.append(f"night ❌")
+            else:
+                results.append("night ⏭️")
         
         elif hour_utc == 0:
             if should_run("cleanup", 0):
@@ -208,12 +301,12 @@ def create_app():
                         results.append("cleanup ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ cleanup_job hatası: {e}")
-                    results.append(f"cleanup ❌ {str(e)}")
+                    results.append(f"cleanup ❌")
             else:
-                results.append("cleanup ⏭️ (zaten çalıştı)")
+                results.append("cleanup ⏭️")
         
         else:
-            results.append(f"⏸️  UTC {hour_utc:02d}:xx (TR {now_tr.hour:02d}:xx) - Planlanmış görev yok")
+            results.append(f"⏸️  UTC {hour_utc:02d}:xx - Planlanmış görev yok")
         
         return jsonify({
             "status": "ok",
@@ -288,6 +381,9 @@ def create_app():
                 "/news",
                 "/news/stats",
                 "/news/last-update",
+                "/api/news/scraped",
+                "/api/news/scraped/after",
+                "/api/news/scraped/stats",
                 "/api/usage",
                 "/cron?key=SECRET"
             ]
