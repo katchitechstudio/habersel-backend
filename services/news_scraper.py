@@ -3,6 +3,7 @@ from models.news_models import NewsModel
 import time
 import random
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +46,10 @@ def scrape_article_content(url: str):
         return None, None
 
 
-def scrape_all_pending_articles():
-    logger.info("🔍 Scrape edilecek haberler aranıyor...")
+def scrape_latest_news(count=15):
+    logger.info(f"🔍 Scrape edilecek haberler aranıyor... (Hedef: {count})")
     
-    pending_articles = NewsModel.get_articles_without_content(limit=20)
+    pending_articles = NewsModel.get_unscraped(limit=count, exclude_blacklist=True)
     
     if not pending_articles:
         logger.info("✅ Scrape edilecek haber yok")
@@ -61,16 +62,24 @@ def scrape_all_pending_articles():
     
     for idx, article in enumerate(pending_articles, 1):
         try:
+            article_url = article['url']
+            article_id = article['id']
+            
+            if NewsModel.is_blacklisted(article_url, threshold=3):
+                logger.debug(f"🚫 [{idx}/{len(pending_articles)}] Blacklist'te, atlanıyor: {article['title'][:60]}...")
+                failed += 1
+                continue
+            
             logger.info(f"🔄 [{idx}/{len(pending_articles)}] {article['title'][:60]}...")
             
             api_image = article.get('image')
-            full_content, scraped_image = scrape_article_content(article['url'])
+            full_content, scraped_image = scrape_article_content(article_url)
             
             if full_content:
                 final_image = scraped_image if scraped_image else api_image
                 
                 NewsModel.update_full_content(
-                    article['id'], 
+                    article_id, 
                     full_content, 
                     final_image
                 )
@@ -82,20 +91,35 @@ def scrape_all_pending_articles():
                 if scraped_image:
                     logger.info(f"   ✅ {char_count} karakter, ~{word_count} kelime (Scraper görseli)")
                 elif api_image:
-                    logger.info(f"   ✅ {char_count} karakter, ~{word_count} kelime (API görseli yedek)")
+                    logger.info(f"   ✅ {char_count} karakter, ~{word_count} kelime (API görseli)")
                 else:
                     logger.info(f"   ✅ {char_count} karakter, ~{word_count} kelime (görsel yok)")
             else:
                 failed += 1
+                NewsModel.add_to_blacklist(article_url, reason="content_extraction_failed")
                 logger.warning(f"   ⚠️ İçerik alınamadı")
             
             if idx < len(pending_articles):
-                wait_time = random.randint(20, 35)
-                logger.debug(f"   ⏰ {wait_time} saniye bekleniyor...")
+                wait_time = random.randint(25, 35)
                 time.sleep(wait_time)
             
         except Exception as e:
             failed += 1
+            NewsModel.add_to_blacklist(article['url'], reason=f"exception: {str(e)[:50]}")
             logger.error(f"   ❌ Hata: {e}")
     
     logger.info(f"🎉 Scraping tamamlandı! Başarılı: {success}, Başarısız: {failed}")
+
+
+def scrape_all_pending_articles():
+    scrape_latest_news(count=20)
+
+
+def scrape_in_background(count=15):
+    thread = threading.Thread(
+        target=scrape_latest_news,
+        args=(count,),
+        daemon=True
+    )
+    thread.start()
+    logger.info(f"🔥 Scraping arka planda başlatıldı ({count} haber)")
