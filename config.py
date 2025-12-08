@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 class Config:
     DEBUG = os.getenv("DEBUG", "False").lower() == "true"
     SECRET_KEY = os.getenv("SECRET_KEY", "super_secret_key_change_in_production")
@@ -53,37 +54,85 @@ class Config:
             "time": "00:00",
             "hour": 0,
             "apis": ["gnews"],
-            "total_requests": 5
+            "categories": ["general", "world"],
+            "scraping_count": 10
+        },
+        "late_night": {
+            "time": "02:00",
+            "hour": 2,
+            "apis": ["currents"],
+            "categories": ["sports", "general"],
+            "scraping_count": 10
         },
         "early_morning": {
             "time": "04:00",
             "hour": 4,
             "apis": ["gnews"],
-            "total_requests": 5
+            "categories": ["general", "business"],
+            "scraping_count": 10
+        },
+        "dawn": {
+            "time": "06:00",
+            "hour": 6,
+            "apis": ["currents"],
+            "categories": ["technology", "world"],
+            "scraping_count": 10
         },
         "morning": {
             "time": "08:00",
             "hour": 8,
             "apis": ["gnews", "currents"],
-            "total_requests": 10
+            "categories": ["general", "business", "sports"],
+            "scraping_count": 15
+        },
+        "mid_morning": {
+            "time": "10:00",
+            "hour": 10,
+            "apis": ["mediastack"],
+            "categories": ["general"],
+            "scraping_count": 10
         },
         "noon": {
             "time": "12:00",
             "hour": 12,
             "apis": ["gnews", "mediastack"],
-            "total_requests": 8
+            "categories": ["business", "technology"],
+            "scraping_count": 15
         },
         "afternoon": {
+            "time": "14:00",
+            "hour": 14,
+            "apis": ["currents"],
+            "categories": ["sports", "general"],
+            "scraping_count": 10
+        },
+        "late_afternoon": {
             "time": "16:00",
             "hour": 16,
             "apis": ["gnews", "currents"],
-            "total_requests": 10
+            "categories": ["world", "technology"],
+            "scraping_count": 15
+        },
+        "early_evening": {
+            "time": "18:00",
+            "hour": 18,
+            "apis": ["mediastack"],
+            "categories": ["general"],
+            "scraping_count": 10
         },
         "evening": {
             "time": "20:00",
             "hour": 20,
-            "apis": ["gnews", "currents"],
-            "total_requests": 10
+            "apis": ["currents"],
+            "categories": ["general", "sports"],
+            "scraping_count": 15
+        },
+        "night": {
+            "time": "22:00",
+            "hour": 22,
+            "apis": ["currents"],
+            "categories": ["world", "general"],
+            "scraping_count": 10
         }
     }
     
