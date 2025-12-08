@@ -1,11 +1,10 @@
 from services.news_service import NewsService
-from services.news_scraper import scrape_all_pending_articles
+from services.news_scraper import scrape_in_background
 from models.system_models import SystemModel
 from config import Config
 from datetime import datetime
 import pytz
 import logging
-import threading
 
 logger = logging.getLogger(__name__)
 
@@ -58,16 +57,15 @@ def run_update(label: str, slot_name: str = None):
     
     try:
         if slot_name and slot_name in Config.CRON_SCHEDULE:
+            slot_config = Config.CRON_SCHEDULE[slot_name]
+            scraping_count = slot_config.get("scraping_count", 15)
             stats = NewsService.update_scheduled_slot(slot_name)
         else:
+            scraping_count = 20
             stats = NewsService.update_all_categories()
         
-        logger.info("🔥 Scraping arka planda başlatılıyor...")
-        scraping_thread = threading.Thread(
-            target=scrape_all_pending_articles,
-            daemon=True
-        )
-        scraping_thread.start()
+        logger.info(f"🔥 Scraping arka planda başlatılıyor ({scraping_count} haber)...")
+        scrape_in_background(count=scraping_count)
         
         end_time_utc = datetime.now(pytz.UTC)
         duration = (end_time_utc - now_utc).total_seconds()
@@ -92,12 +90,24 @@ def midnight_job():
     return run_update("GECE 00:00", slot_name="midnight")
 
 
+def late_night_job():
+    return run_update("GECE 02:00", slot_name="late_night")
+
+
 def early_morning_job():
     return run_update("SABAH ERKENİ 04:00", slot_name="early_morning")
 
 
+def dawn_job():
+    return run_update("ŞAFAK 06:00", slot_name="dawn")
+
+
 def morning_job():
     return run_update("SABAH 08:00", slot_name="morning")
+
+
+def mid_morning_job():
+    return run_update("KUŞLUK 10:00", slot_name="mid_morning")
 
 
 def noon_job():
@@ -105,11 +115,23 @@ def noon_job():
 
 
 def afternoon_job():
-    return run_update("İKİNDİ 16:00", slot_name="afternoon")
+    return run_update("İKİNDİ 14:00", slot_name="afternoon")
+
+
+def late_afternoon_job():
+    return run_update("İKİNDİ SONU 16:00", slot_name="late_afternoon")
+
+
+def early_evening_job():
+    return run_update("AKŞAM BAŞI 18:00", slot_name="early_evening")
 
 
 def evening_job():
     return run_update("AKŞAM 20:00", slot_name="evening")
+
+
+def night_job():
+    return run_update("GECE 22:00", slot_name="night")
 
 
 def cleanup_job():
