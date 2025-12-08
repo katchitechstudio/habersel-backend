@@ -7,6 +7,7 @@ Bu modül genel amaçlı yardımcı fonksiyonlar içerir:
 - String işlemleri
 - Validation (doğrulama)
 - Retry mekanizması
+- Haber içerik temizleme (YENİ)
 - Diğer utility fonksiyonlar
 """
 
@@ -360,6 +361,319 @@ def extract_domain(url: str) -> Optional[str]:
     domain = domain.split(":")[0]
     
     return domain.lower()
+
+
+# ============================================
+# 🆕 HABER İÇERİK TEMİZLEME FONKSİYONLARI
+# ============================================
+
+def clean_news_content(content: Optional[str]) -> Optional[str]:
+    """
+    Haber içeriğini temizler ve düzenler
+    
+    🧹 Temizleme işlemleri:
+    - "Haberin Devamı", "Gözden Kaçmasın" gibi kalıpları siler
+    - Twitter embed artıklarını (t.co linkleri, kullanıcı adları) kaldırır
+    - Hashtagleri temizler
+    - Çift boşlukları düzeltir
+    - Paragrafları düzenler
+    - Türkçe karakter hatalarını düzeltir
+    
+    Args:
+        content: Ham haber metni
+        
+    Returns:
+        Temizlenmiş ve düzenlenmiş metin
+    """
+    if not content:
+        return None
+    
+    text = content
+    
+    # 1️⃣ Gereksiz kalıpları sil
+    remove_patterns = [
+        r"Haberin Devamı[:\s]*",
+        r"Gözden Kaçmasın[:\s]*",
+        r"Haberi görüntüle[:\s]*",
+        r"İlgili Haber[:\s]*",
+        r"Önerilen Haber[:\s]*",
+        r"Devamını Oku[:\s]*",
+        r"Tıklayınız[:\s]*",
+        r"Kaynak\s*:\s*\w+",
+        r"Editör\s*:\s*\w+",
+        r"https?://t\.co/\w+",  # Twitter kısa linkleri
+        r"—\s*@\w+\s+\([^)]+\)",  # Twitter kullanıcı adları (— @user (date))
+        r"@\w+",  # Diğer mention'lar
+        r"#[\wğüşıöçĞÜŞİÖÇ]+",  # Hashtagler (Türkçe karakterli)
+        r"\[.*?\]",  # Köşeli parantez içi metinler
+        r"\(Fotoğraf:.*?\)",  # Fotoğraf notları
+        r"\(Foto:.*?\)",
+        r"İlan\s*\d+",  # İlan numaraları
+        r"Reklam\s*\d*",
+    ]
+    
+    for pattern in remove_patterns:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+    
+    # 2️⃣ HTML tag'lerini temizle
+    text = remove_html_tags(text)
+    
+    # 3️⃣ Çift boşlukları tek boşluğa indir
+    text = re.sub(r' +', ' ', text)
+    
+    # 4️⃣ Çoklu satır sonlarını düzenle (3+ boş satır → 2 boş satır)
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+    
+    # 5️⃣ Baş ve son boşlukları temizle
+    text = text.strip()
+    
+    # 6️⃣ Paragrafları düzenle (uzun paragrafları böl)
+    paragraphs = text.split('\n\n')
+    formatted_paragraphs = []
+    
+    for para in paragraphs:
+        para = para.strip()
+        if not para or len(para) < 10:  # Çok kısa satırları atla
+            continue
+        
+        # Çok uzun paragrafları böl (5+ cümle varsa)
+        sentences = re.split(r'(?<=[.!?])\s+', para)
+        
+        if len(sentences) > 5:
+            # Her 3-4 cümleyi yeni paragrafa dönüştür
+            temp_para = []
+            for i, sentence in enumerate(sentences):
+                temp_para.append(sentence)
+                if (i + 1) % 4 == 0 and i < len(sentences) - 1:
+                    formatted_paragraphs.append(' '.join(temp_para))
+                    temp_para = []
+            if temp_para:
+                formatted_paragraphs.append(' '.join(temp_para))
+        else:
+            formatted_paragraphs.append(para)
+    
+    # 7️⃣ Paragrafları birleştir
+    result = '\n\n'.join(formatted_paragraphs)
+    
+    # 8️⃣ Türkçe karakter düzeltmeleri (encoding hataları)
+    turkish_fixes = {
+        'Ä±': 'ı', 'Ä°': 'İ',
+        'Åž': 'Ş', 'ÅŸ': 'ş',
+        'Ã§': 'ç', 'Ã‡': 'Ç',
+        'Ã¶': 'ö', 'Ã–': 'Ö',
+        'Ã¼': 'ü', 'Ãœ': 'Ü',
+        'ÄŸ': 'ğ', 'Ä': 'Ğ',
+    }
+    
+    for wrong, correct in turkish_fixes.items():
+        result = result.replace(wrong, correct)
+    
+    # 9️⃣ Boş satırları temizle
+    lines = result.split('\n')
+    lines = [line.strip() for line in lines if line.strip()]
+    result = '\n\n'.join(lines)
+    
+    return result if result else None
+
+
+def clean_news_title(title: Optional[str]) -> Optional[str]:
+    """
+    Haber başlığını temizler
+    
+    Args:
+        title: Ham başlık
+        
+    Returns:
+        Temizlenmiş başlık
+    """
+    if not title:
+        return None
+    
+    text = title.strip()
+    
+    # Gereksiz kalıpları sil
+    text = re.sub(r'\[.*?\]', '', text)  # [Özel Haber] gibi etiketler
+    text = re.sub(r'\(.*?\)', '', text)  # (Videolu) gibi notlar
+    text = re.sub(r'#[\wğüşıöçĞÜŞİÖÇ]+', '', text)  # Hashtagler
+    
+    # HTML tag'lerini temizle
+    text = remove_html_tags(text)
+    
+    # Çift boşlukları düzelt
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Türkçe karakter düzeltmeleri
+    turkish_fixes = {
+        'Ä±': 'ı', 'Ä°': 'İ',
+        'Åž': 'Ş', 'ÅŸ': 'ş',
+        'Ã§': 'ç', 'Ã‡': 'Ç',
+        'Ã¶': 'ö', 'Ã–': 'Ö',
+        'Ã¼': 'ü', 'Ãœ': 'Ü',
+        'ÄŸ': 'ğ', 'Ä': 'Ğ',
+    }
+    
+    for wrong, correct in turkish_fixes.items():
+        text = text.replace(wrong, correct)
+    
+    # Başlık çok uzunsa kısalt (150 karakterden uzun olmamalı)
+    if len(text) > 150:
+        text = text[:147] + "..."
+    
+    return text.strip() if text.strip() else None
+
+
+def format_news_date(date_str: Optional[str]) -> Optional[str]:
+    """
+    Haber tarihini dd.MM.yyyy formatına çevirir
+    
+    Args:
+        date_str: Ham tarih string (ISO format veya başka)
+        
+    Returns:
+        dd.MM.yyyy formatında tarih (örn: "07.12.2025")
+    """
+    if not date_str:
+        return None
+    
+    try:
+        # ISO format deneme
+        dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        return dt.strftime('%d.%m.%Y')
+    except:
+        pass
+    
+    try:
+        # Diğer formatlar
+        dt = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+        return dt.strftime('%d.%m.%Y')
+    except:
+        pass
+    
+    # Parse edilemezse orijinali döndür
+    return date_str
+
+
+def detect_and_format_subheadings(content: str) -> str:
+    """
+    İçerikteki alt başlıkları algılar ve bold formatlar
+    
+    Algılama kuralları:
+    - Tamamen büyük harfli ve 100 karakterden kısa satırlar
+    - 15 kelimeden az olan satırlar
+    
+    Args:
+        content: Haber içeriği
+        
+    Returns:
+        Alt başlıkları **bold** formatında işaretlenmiş içerik
+    """
+    if not content:
+        return ""
+    
+    lines = content.split('\n')
+    formatted_lines = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            formatted_lines.append('')
+            continue
+        
+        # Tamamen büyük harfli ve kısa satırları alt başlık olarak işaretle
+        word_count = len(line.split())
+        is_all_caps = line.isupper()
+        is_short = len(line) < 100 and word_count < 15
+        
+        if is_all_caps and is_short and word_count > 2:
+            # Title case yap ve bold işaretle
+            formatted_lines.append(f"**{line.title()}**")
+        else:
+            formatted_lines.append(line)
+    
+    return '\n'.join(formatted_lines)
+
+
+def remove_duplicate_paragraphs(text: str) -> str:
+    """
+    Tekrar eden paragrafları/cümleleri kaldırır
+    
+    Args:
+        text: Haber metni
+        
+    Returns:
+        Tekrarları kaldırılmış metin
+    """
+    if not text:
+        return ""
+    
+    paragraphs = text.split('\n\n')
+    seen = set()
+    unique_paragraphs = []
+    
+    for para in paragraphs:
+        para_clean = para.strip().lower()
+        if para_clean and para_clean not in seen and len(para_clean) > 20:
+            seen.add(para_clean)
+            unique_paragraphs.append(para.strip())
+    
+    return '\n\n'.join(unique_paragraphs)
+
+
+def full_clean_news_pipeline(
+    title: str,
+    content: Optional[str],
+    description: Optional[str] = None,
+    date: Optional[str] = None
+) -> dict:
+    """
+    🎯 TAM TEMİZLEME PİPELINE - Tüm işlemleri birleştirir
+    
+    Bu fonksiyonu scraping sırasında kullan!
+    
+    Args:
+        title: Ham başlık
+        content: Ham tam içerik (full_content)
+        description: Ham özet/açıklama
+        date: Ham tarih
+        
+    Returns:
+        Temizlenmiş veri dict'i:
+        {
+            'title': 'Temiz başlık',
+            'content': 'Temiz tam içerik',
+            'description': 'Temiz özet',
+            'date': '07.12.2025'
+        }
+    """
+    cleaned_title = clean_news_title(title)
+    
+    # İçeriği tamamen temizle
+    if content:
+        cleaned_content = clean_news_content(content)
+        if cleaned_content:
+            cleaned_content = remove_duplicate_paragraphs(cleaned_content)
+            cleaned_content = detect_and_format_subheadings(cleaned_content)
+    else:
+        cleaned_content = None
+    
+    # Description'ı temizle
+    if description:
+        cleaned_desc = clean_news_content(description)
+        # Description çok uzunsa kısalt (500 karakter)
+        if cleaned_desc and len(cleaned_desc) > 500:
+            cleaned_desc = cleaned_desc[:497] + "..."
+    else:
+        cleaned_desc = None
+    
+    # Tarihi formatla
+    formatted_date = format_news_date(date)
+    
+    return {
+        'title': cleaned_title,
+        'content': cleaned_content,
+        'description': cleaned_desc,
+        'date': formatted_date
+    }
 
 
 # ============================================
