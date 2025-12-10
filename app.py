@@ -20,7 +20,7 @@ from services.scheduler import (
     cleanup_job
 )
 from config import Config
-from init_db import init_database, verify_tables
+from services.init_db import init_database, verify_tables
 import os
 import json
 import logging
