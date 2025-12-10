@@ -20,6 +20,7 @@ from services.scheduler import (
     cleanup_job
 )
 from config import Config
+from init_db import init_database, verify_tables
 import os
 import json
 import logging
@@ -85,10 +86,17 @@ def create_app():
     )
 
     try:
-        NewsModel.create_table()
-        logger.info("✅ Database tabloları hazır")
+        init_database()
+        verify_tables()
+        logger.info("✅ Veritabanı başlatma tamamlandı")
     except Exception as e:
-        logger.error(f"❌ DB tablo hatası: {e}")
+        logger.error(f"❌ init_database hatası: {e}")
+
+    try:
+        NewsModel.create_table()
+        logger.info("✅ NewsModel tabloları hazır")
+    except Exception as e:
+        logger.error(f"❌ NewsModel tablo hatası: {e}")
 
     try:
         from models.system_models import SystemModel
