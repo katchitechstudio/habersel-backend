@@ -7,6 +7,7 @@ from services.news_fetcher import (
 )
 from services.duplicate_filter import remove_duplicates, filter_low_quality
 from models.news_models import NewsModel
+from utils.helpers import clean_news_title, clean_news_content, enhanced_clean_pipeline
 from config import Config
 import logging
 from datetime import datetime
@@ -16,16 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 class NewsService:
-    """
-    Haber güncelleme ve yönetim servisi.
-    Görevi: API'lerden ham veriyi alıp veritabanına "işlenecek aday" olarak kaydetmektir.
-    """
 
     @staticmethod
     def update_category(category: str, api_source: str = "auto") -> dict:
-        """
-        Belirli bir kategori için haber günceller.
-        """
         logger.info(f"🔍 [{category}] Kategori taranıyor...")
 
         stats = {
@@ -40,15 +34,12 @@ class NewsService:
         }
 
         try:
-            # 1) API'den haber çek
             raw_news = []
             
             if api_source == "auto":
-                # En iyi kaynaktan çek (Zincirleme)
                 raw_news = get_news_from_best_source(category)
                 stats["api_used"] = "fallback_chain"
             else:
-                # Belirli API'den çek
                 api_functions = {
                     "gnews": fetch_gnews,
                     "currents": fetch_currents,
@@ -63,7 +54,6 @@ class NewsService:
 
                 raw_news = fetch_func(category)
 
-            # Eğer hiç haber gelmediyse çık
             if not raw_news:
                 logger.warning(f"⚠️  [{category}] API'den haber alınamadı (Liste boş)")
                 return stats
@@ -71,18 +61,12 @@ class NewsService:
             stats["fetched"] = len(raw_news)
             logger.info(f"📥 [{category}] {stats['fetched']} adet ham haber çekildi")
 
-            # 2) Duplicate filtreleme (Basit URL/Başlık kontrolü)
             clean_news = remove_duplicates(raw_news)
             stats["after_duplicate_filter"] = len(clean_news)
             
-            # Log detayı
             if len(clean_news) < len(raw_news):
                 logger.info(f"   ✂️ {len(raw_news) - len(clean_news)} adet mükerrer (duplicate) elendi.")
 
-            # 3) Kalite filtreleme (DÜZELTİLDİ: Artık daha esnek)
-            # Scraper'ın çalışabilmesi için sadece Başlık ve URL olması yeterli.
-            # Eskiden description kısa diye atıyordu, şimdi atmıyoruz.
-            # Sadece bomboş olanları atıyoruz.
             quality_news = []
             for item in clean_news:
                 if item.get('title') and item.get('url'):
@@ -90,12 +74,35 @@ class NewsService:
             
             stats["after_quality_filter"] = len(quality_news)
 
-            # 4) Veritabanına kaydet
-            # Burası çok önemli: Kaydederken 'full_content' henüz yok.
-            # Veritabanına girecek, sonra Scraper (Cron) bunları görüp içini dolduracak.
             if quality_news:
+                cleaned_news = []
+                for item in quality_news:
+                    cleaned_item = item.copy()
+                    
+                    if cleaned_item.get('title'):
+                        original_title = cleaned_item['title']
+                        cleaned_title = clean_news_title(original_title)
+                        
+                        if cleaned_title and len(cleaned_title) >= 10:
+                            cleaned_item['title'] = cleaned_title
+                            if cleaned_title != original_title:
+                                logger.debug(f"   🧹 Başlık temizlendi: {original_title[:40]}... → {cleaned_title[:40]}...")
+                    
+                    if cleaned_item.get('description'):
+                        original_desc = cleaned_item['description']
+                        cleaned_desc = clean_news_content(original_desc)
+                        
+                        if cleaned_desc and len(cleaned_desc) >= 30:
+                            cleaned_item['description'] = cleaned_desc
+                            if cleaned_desc != original_desc:
+                                logger.debug(f"   🧹 Açıklama temizlendi")
+                    
+                    cleaned_news.append(cleaned_item)
+                
+                logger.info(f"   🧹 {len(cleaned_news)} haber temizlendi, kaydediliyor...")
+                
                 save_stats = NewsModel.save_bulk(
-                    quality_news,
+                    cleaned_news,
                     category,
                     api_source=stats["api_used"]
                 )
@@ -122,8 +129,6 @@ class NewsService:
 
     @staticmethod
     def update_all_categories(api_source: str = "auto") -> dict:
-        """Tüm kategorileri günceller (manuel veya klasik cron)."""
-
         tz = pytz.timezone(Config.TIMEZONE)
         start_time = datetime.now(tz)
 
@@ -165,7 +170,6 @@ class NewsService:
 
     @staticmethod
     def update_scheduled_slot(slot_name: str) -> dict:
-        """CRON slotlarına göre güncelleme yapar."""
         slot_config = Config.CRON_SCHEDULE.get(slot_name)
 
         if not slot_config:
@@ -176,18 +180,16 @@ class NewsService:
         
         all_stats = []
         
-        # Her kategori için, slotta tanımlı API'leri sırayla dener
         for category in Config.NEWS_CATEGORIES:
             success = False
             for api in slot_config["apis"]:
                 logger.info(f"👉 Deneniyor: {api} -> {category}")
                 stats = NewsService.update_category(category, api_source=api)
                 
-                # Eğer en az 1 haber çekildiyse (kaydedilmese bile, API çalıştı demektir)
                 if stats["fetched"] > 0:
                     all_stats.append(stats)
                     success = True
-                    break # Bu kategori için diğer API'ye geçme, başarılı oldu
+                    break
             
             if not success:
                 logger.warning(f"⚠️ [{category}] Hiçbir API'den veri alınamadı.")
@@ -200,7 +202,6 @@ class NewsService:
 
     @staticmethod
     def clean_expired_news() -> dict:
-        """Eski haberleri temizler."""
         tz = pytz.timezone(Config.TIMEZONE)
         start = datetime.now(tz)
 
@@ -223,7 +224,6 @@ class NewsService:
 
     @staticmethod
     def get_system_status() -> dict:
-        """Monitoring için sistem durum bilgisi döndürür."""
         from services.api_manager import get_all_usage, get_daily_summary
 
         try:
@@ -242,8 +242,8 @@ class NewsService:
                     "total_news": total_news,
                     "latest_update": latest_update,
                     "by_category": by_category,
-                    "scraped_count": NewsModel.count_scraped(),     # Dolu haberler
-                    "unscraped_count": NewsModel.count_unscraped()  # İşlenmeyi bekleyenler
+                    "scraped_count": NewsModel.count_scraped(),
+                    "unscraped_count": NewsModel.count_unscraped()
                 },
                 "api_usage": get_all_usage(),
                 "api_summary": get_daily_summary()
