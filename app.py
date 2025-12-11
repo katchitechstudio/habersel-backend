@@ -17,7 +17,11 @@ from services.scheduler import (
     early_evening_job,
     evening_job,
     night_job,
-    cleanup_job
+    cleanup_job,
+    # 🆕 SCRAPING-ONLY JOB'LARI
+    morning_scraping_job,
+    afternoon_scraping_job,
+    evening_scraping_job
 )
 from config import Config
 from services.init_db import init_database, verify_tables
@@ -131,7 +135,11 @@ def create_app():
         
         results = []
         
-        if 21 <= hour_utc < 22:
+        # ============================================
+        # HABER TOPLAMA JOB'LARI (Günde 12 kez)
+        # ============================================
+        
+        if 21 <= hour_utc < 22:  # 00:00 TR
             if should_run("midnight", 21):
                 try:
                     result = midnight_job()
@@ -141,11 +149,11 @@ def create_app():
                         results.append("midnight ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ midnight_job hatası: {e}")
-                    results.append(f"midnight ❌")
+                    results.append("midnight ❌")
             else:
                 results.append("midnight ⏭️")
         
-        elif 23 <= hour_utc < 24:
+        elif 23 <= hour_utc < 24:  # 02:00 TR
             if should_run("late_night", 23):
                 try:
                     result = late_night_job()
@@ -155,11 +163,11 @@ def create_app():
                         results.append("late_night ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ late_night_job hatası: {e}")
-                    results.append(f"late_night ❌")
+                    results.append("late_night ❌")
             else:
                 results.append("late_night ⏭️")
         
-        elif 1 <= hour_utc < 2:
+        elif 1 <= hour_utc < 2:  # 04:00 TR
             if should_run("early_morning", 1):
                 try:
                     result = early_morning_job()
@@ -169,11 +177,11 @@ def create_app():
                         results.append("early_morning ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ early_morning_job hatası: {e}")
-                    results.append(f"early_morning ❌")
+                    results.append("early_morning ❌")
             else:
                 results.append("early_morning ⏭️")
         
-        elif 3 <= hour_utc < 4:
+        elif 3 <= hour_utc < 4:  # 06:00 TR
             if should_run("dawn", 3):
                 try:
                     result = dawn_job()
@@ -183,11 +191,11 @@ def create_app():
                         results.append("dawn ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ dawn_job hatası: {e}")
-                    results.append(f"dawn ❌")
+                    results.append("dawn ❌")
             else:
                 results.append("dawn ⏭️")
         
-        elif 5 <= hour_utc < 6:
+        elif 5 <= hour_utc < 6:  # 08:00 TR
             if should_run("morning", 5):
                 try:
                     result = morning_job()
@@ -197,11 +205,26 @@ def create_app():
                         results.append("morning ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ morning_job hatası: {e}")
-                    results.append(f"morning ❌")
+                    results.append("morning ❌")
             else:
                 results.append("morning ⏭️")
         
-        elif 7 <= hour_utc < 8:
+        # 🆕 SABAH SCRAPING (09:00 TR / 06:00 UTC)
+        elif 6 <= hour_utc < 7:
+            if should_run("morning_scraping", 6):
+                try:
+                    result = morning_scraping_job()
+                    if not result or not result.get("skipped"):
+                        results.append("morning_scraping ✅")
+                    else:
+                        results.append("morning_scraping ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ morning_scraping_job hatası: {e}")
+                    results.append("morning_scraping ❌")
+            else:
+                results.append("morning_scraping ⏭️")
+        
+        elif 7 <= hour_utc < 8:  # 10:00 TR
             if should_run("mid_morning", 7):
                 try:
                     result = mid_morning_job()
@@ -211,11 +234,11 @@ def create_app():
                         results.append("mid_morning ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ mid_morning_job hatası: {e}")
-                    results.append(f"mid_morning ❌")
+                    results.append("mid_morning ❌")
             else:
                 results.append("mid_morning ⏭️")
         
-        elif 9 <= hour_utc < 10:
+        elif 9 <= hour_utc < 10:  # 12:00 TR
             if should_run("noon", 9):
                 try:
                     result = noon_job()
@@ -225,11 +248,11 @@ def create_app():
                         results.append("noon ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ noon_job hatası: {e}")
-                    results.append(f"noon ❌")
+                    results.append("noon ❌")
             else:
                 results.append("noon ⏭️")
         
-        elif 11 <= hour_utc < 12:
+        elif 11 <= hour_utc < 12:  # 14:00 TR
             if should_run("afternoon", 11):
                 try:
                     result = afternoon_job()
@@ -239,11 +262,26 @@ def create_app():
                         results.append("afternoon ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ afternoon_job hatası: {e}")
-                    results.append(f"afternoon ❌")
+                    results.append("afternoon ❌")
             else:
                 results.append("afternoon ⏭️")
         
-        elif 13 <= hour_utc < 14:
+        # 🆕 ÖĞLEDEN SONRA SCRAPING (15:00 TR / 12:00 UTC)
+        elif 12 <= hour_utc < 13:
+            if should_run("afternoon_scraping", 12):
+                try:
+                    result = afternoon_scraping_job()
+                    if not result or not result.get("skipped"):
+                        results.append("afternoon_scraping ✅")
+                    else:
+                        results.append("afternoon_scraping ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ afternoon_scraping_job hatası: {e}")
+                    results.append("afternoon_scraping ❌")
+            else:
+                results.append("afternoon_scraping ⏭️")
+        
+        elif 13 <= hour_utc < 14:  # 16:00 TR
             if should_run("late_afternoon", 13):
                 try:
                     result = late_afternoon_job()
@@ -253,11 +291,11 @@ def create_app():
                         results.append("late_afternoon ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ late_afternoon_job hatası: {e}")
-                    results.append(f"late_afternoon ❌")
+                    results.append("late_afternoon ❌")
             else:
                 results.append("late_afternoon ⏭️")
         
-        elif 15 <= hour_utc < 16:
+        elif 15 <= hour_utc < 16:  # 18:00 TR
             if should_run("early_evening", 15):
                 try:
                     result = early_evening_job()
@@ -267,11 +305,11 @@ def create_app():
                         results.append("early_evening ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ early_evening_job hatası: {e}")
-                    results.append(f"early_evening ❌")
+                    results.append("early_evening ❌")
             else:
                 results.append("early_evening ⏭️")
         
-        elif 17 <= hour_utc < 18:
+        elif 17 <= hour_utc < 18:  # 20:00 TR
             if should_run("evening", 17):
                 try:
                     result = evening_job()
@@ -281,11 +319,26 @@ def create_app():
                         results.append("evening ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ evening_job hatası: {e}")
-                    results.append(f"evening ❌")
+                    results.append("evening ❌")
             else:
                 results.append("evening ⏭️")
         
-        elif 19 <= hour_utc < 20:
+        # 🆕 AKŞAM SCRAPING (21:00 TR / 18:00 UTC)
+        elif 18 <= hour_utc < 19:
+            if should_run("evening_scraping", 18):
+                try:
+                    result = evening_scraping_job()
+                    if not result or not result.get("skipped"):
+                        results.append("evening_scraping ✅")
+                    else:
+                        results.append("evening_scraping ⏭️")
+                except Exception as e:
+                    logger.exception(f"❌ evening_scraping_job hatası: {e}")
+                    results.append("evening_scraping ❌")
+            else:
+                results.append("evening_scraping ⏭️")
+        
+        elif 19 <= hour_utc < 20:  # 22:00 TR
             if should_run("night", 19):
                 try:
                     result = night_job()
@@ -295,9 +348,13 @@ def create_app():
                         results.append("night ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ night_job hatası: {e}")
-                    results.append(f"night ❌")
+                    results.append("night ❌")
             else:
                 results.append("night ⏭️")
+        
+        # ============================================
+        # TEMİZLİK JOB'U (03:00 TR / 00:00 UTC)
+        # ============================================
         
         elif hour_utc == 0:
             if should_run("cleanup", 0):
@@ -309,7 +366,7 @@ def create_app():
                         results.append("cleanup ⏭️")
                 except Exception as e:
                     logger.exception(f"❌ cleanup_job hatası: {e}")
-                    results.append(f"cleanup ❌")
+                    results.append("cleanup ❌")
             else:
                 results.append("cleanup ⏭️")
         
@@ -392,6 +449,7 @@ def create_app():
                 "/api/news/scraped",
                 "/api/news/scraped/after",
                 "/api/news/scraped/stats",
+                "/api/news/force-fill",
                 "/api/usage",
                 "/cron?key=SECRET"
             ]
