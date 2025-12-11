@@ -257,13 +257,13 @@ def scrape_latest_news(count: int = 10):
     return scraper.scrape_batch(limit=count)
 
 
-def scrape_in_background(limit: int = 10):
+def scrape_in_background(count: int = 10):
     """
     Arka planda scraping yapar.
     Scheduler tarafından otomatik çağrılır.
     """
     scraper = NewsScraper()
-    stats = scraper.scrape_batch(limit=limit)
+    stats = scraper.scrape_batch(limit=count)
     logger.info(f"🤖 Background scraping tamamlandı: {stats}")
     return stats
 
