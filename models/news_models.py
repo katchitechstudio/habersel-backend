@@ -41,7 +41,8 @@ class NewsModel:
                     published TIMESTAMPTZ,
                     saved_at TIMESTAMPTZ DEFAULT (NOW() AT TIME ZONE 'UTC'),
                     expires_at TIMESTAMPTZ NOT NULL,
-                    title_url_hash VARCHAR(64)
+                    title_url_hash VARCHAR(64),
+                    is_scraped BOOLEAN NOT NULL DEFAULT TRUE
                 );
                 
                 CREATE TABLE IF NOT EXISTS scraping_blacklist (
@@ -83,6 +84,15 @@ class NewsModel:
                     ) THEN
                         ALTER TABLE news ADD COLUMN expires_at TIMESTAMPTZ NOT NULL DEFAULT ((NOW() AT TIME ZONE 'UTC') + INTERVAL '7 days');
                         RAISE NOTICE '✅ expires_at kolonu eklendi';
+                    END IF;
+
+                    -- is_scraped kontrolü
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='news' AND column_name='is_scraped'
+                    ) THEN
+                        ALTER TABLE news ADD COLUMN is_scraped BOOLEAN NOT NULL DEFAULT TRUE;
+                        RAISE NOTICE '✅ is_scraped kolonu eklendi';
                     END IF;
                     
                     -- 🆕 TIMEZONE FIX: saved_at'i TIMESTAMPTZ'ye çevir
@@ -144,15 +154,14 @@ class NewsModel:
                 CREATE INDEX IF NOT EXISTS idx_news_published 
                 ON news(published DESC);
                 
-                CREATE INDEX IF NOT EXISTS idx_news_full_content 
-                ON news(full_content) WHERE full_content IS NOT NULL;
+                -- ⚠️ full_content ÜZERİNE INDEX KALDIRILDI (çok büyük satır hatası veriyordu)
                 
                 CREATE INDEX IF NOT EXISTS idx_blacklist_hash 
                 ON scraping_blacklist(url_hash);
             """)
 
             conn.commit()
-            logger.info("✅ news tablosu hazır (otomatik migration + timezone fix tamamlandı)")
+            logger.info("✅ news tablosu hazır (otomatik migration + timezone + is_scraped fix tamamlandı)")
 
         except Exception as e:
             logger.error(f"❌ Tablo oluşturma hatası: {e}")
@@ -623,11 +632,11 @@ class NewsModel:
             
             cur.execute("""
                 INSERT INTO scraping_blacklist (url_hash, url, fail_count, reason, last_attempt)
-                VALUES (%s, %s, 1, %s, NOW())
+                VALUES (%s, %s, 1, %s, (NOW() AT TIME ZONE 'UTC'))
                 ON CONFLICT (url_hash) 
                 DO UPDATE SET 
                     fail_count = scraping_blacklist.fail_count + 1,
-                    last_attempt = NOW(),
+                    last_attempt = (NOW() AT TIME ZONE 'UTC'),
                     reason = EXCLUDED.reason
                 RETURNING fail_count;
             """, (url_hash, url, reason))
@@ -808,10 +817,6 @@ class NewsModel:
             
             result = cur.fetchone()
             return result[0] if result else 0
-            
-        except Exception as e:
-            logger.exception(f"❌ count_unscraped hatası")
-            return 0
         finally:
             if conn:
                 cur.close() if 'cur' in locals() else None
