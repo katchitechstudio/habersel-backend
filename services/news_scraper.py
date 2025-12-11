@@ -5,7 +5,7 @@ import time
 import random
 import logging
 import threading
-import ssl # 👈 YENİ: SSL kütüphanesi
+import ssl
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +33,10 @@ def scrape_article_content(url: str):
         
         config = NewspaperConfig()
         config.browser_user_agent = user_agent
-        config.request_timeout = 20 # Süreyi artırdık
+        config.request_timeout = 20
         config.fetch_images = True
-        config.memoize_articles = False # Önbellek yapma, taze çek
+        config.memoize_articles = False
         
-        # Haberi indir
         article = Article(url, language='tr', config=config)
         article.download()
         article.parse()
@@ -81,7 +80,7 @@ def scrape_latest_news(count=15):
             full_content, scraped_image = scrape_article_content(article_url)
             
             if full_content:
-                # Temizle (Varsa helper, yoksa düz)
+                # Temizle
                 try:
                     cleaned_data = full_clean_news_pipeline(
                         title=article.get('title', ''),
@@ -102,10 +101,23 @@ def scrape_latest_news(count=15):
                 failed += 1
                 NewsModel.add_to_blacklist(article_url, reason="empty_content")
             
-            time.sleep(1) # Hızlı gitme, banlanma
+            time.sleep(1)
             
         except Exception as e:
             failed += 1
             logger.error(f"   ❌ Döngü Hatası: {e}")
     
     logger.info(f"🎉 Bitti! Başarılı: {success}, Başarısız: {failed}")
+
+# 👇 İŞTE EKSİK OLAN KISIM BURASIYDI 👇
+def scrape_in_background(count=15):
+    """
+    Scraping işlemini arka planda başlatır (Scheduler için gerekli)
+    """
+    thread = threading.Thread(
+        target=scrape_latest_news,
+        args=(count,),
+        daemon=True
+    )
+    thread.start()
+    logger.info(f"🔥 Scraping arka planda başlatıldı ({count} haber)")
