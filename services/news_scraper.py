@@ -248,5 +248,14 @@ def test_scraper():
             print(f"❌ Başarısız: {result.get('error')}")
 
 
+def scrape_latest_news(count: int = 10):
+    """
+    Manuel içerik doldurma için kullanılır.
+    /force-fill endpoint'inden çağrılır.
+    """
+    scraper = NewsScraper()
+    return scraper.scrape_batch(limit=count)
+
+
 if __name__ == "__main__":
     test_scraper()
