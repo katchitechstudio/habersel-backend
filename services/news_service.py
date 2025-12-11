@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 class NewsService:
     """
-    Haber güncelleme ve yönetim servisi
+    Haber güncelleme ve yönetim servisi.
+    Görevi: API'lerden ham veriyi alıp veritabanına "işlenecek aday" olarak kaydetmektir.
     """
 
     @staticmethod
@@ -25,7 +26,7 @@ class NewsService:
         """
         Belirli bir kategori için haber günceller.
         """
-        logger.info(f"🔍 [{category}] Kategori güncelleniyor...")
+        logger.info(f"🔍 [{category}] Kategori taranıyor...")
 
         stats = {
             "category": category,
@@ -40,10 +41,14 @@ class NewsService:
 
         try:
             # 1) API'den haber çek
+            raw_news = []
+            
             if api_source == "auto":
+                # En iyi kaynaktan çek (Zincirleme)
                 raw_news = get_news_from_best_source(category)
                 stats["api_used"] = "fallback_chain"
             else:
+                # Belirli API'den çek
                 api_functions = {
                     "gnews": fetch_gnews,
                     "currents": fetch_currents,
@@ -58,44 +63,60 @@ class NewsService:
 
                 raw_news = fetch_func(category)
 
+            # Eğer hiç haber gelmediyse çık
             if not raw_news:
-                logger.warning(f"⚠️  [{category}] API'den haber alınamadı")
+                logger.warning(f"⚠️  [{category}] API'den haber alınamadı (Liste boş)")
                 return stats
 
             stats["fetched"] = len(raw_news)
-            logger.info(f"📥 [{category}] {stats['fetched']} haber çekildi")
+            logger.info(f"📥 [{category}] {stats['fetched']} adet ham haber çekildi")
 
-            # 2) Duplicate filtreleme
+            # 2) Duplicate filtreleme (Basit URL/Başlık kontrolü)
             clean_news = remove_duplicates(raw_news)
             stats["after_duplicate_filter"] = len(clean_news)
-            stats["duplicates"] = stats["fetched"] - stats["after_duplicate_filter"]
+            
+            # Log detayı
+            if len(clean_news) < len(raw_news):
+                logger.info(f"   ✂️ {len(raw_news) - len(clean_news)} adet mükerrer (duplicate) elendi.")
 
-            # 3) Kalite filtreleme
-            quality_news = filter_low_quality(clean_news, min_score=60)
+            # 3) Kalite filtreleme (DÜZELTİLDİ: Artık daha esnek)
+            # Scraper'ın çalışabilmesi için sadece Başlık ve URL olması yeterli.
+            # Eskiden description kısa diye atıyordu, şimdi atmıyoruz.
+            # Sadece bomboş olanları atıyoruz.
+            quality_news = []
+            for item in clean_news:
+                if item.get('title') and item.get('url'):
+                    quality_news.append(item)
+            
             stats["after_quality_filter"] = len(quality_news)
 
             # 4) Veritabanına kaydet
-            save_stats = NewsModel.save_bulk(
-                quality_news,
-                category,
-                api_source=stats["api_used"]
-            )
+            # Burası çok önemli: Kaydederken 'full_content' henüz yok.
+            # Veritabanına girecek, sonra Scraper (Cron) bunları görüp içini dolduracak.
+            if quality_news:
+                save_stats = NewsModel.save_bulk(
+                    quality_news,
+                    category,
+                    api_source=stats["api_used"]
+                )
 
-            stats["saved"] = save_stats["saved"]
-            stats["duplicates"] += save_stats["duplicates"]
-            stats["errors"] = save_stats["errors"]
+                stats["saved"] = save_stats["saved"]
+                stats["duplicates"] += save_stats["duplicates"]
+                stats["errors"] = save_stats["errors"]
+            else:
+                logger.warning(f"⚠️ [{category}] Kaydedilecek geçerli haber kalmadı.")
 
             logger.info(
-                f"✅ [{category}] Tamamlandı: "
-                f"{stats['fetched']} çekildi → "
-                f"{stats['saved']} kaydedildi "
-                f"({stats['duplicates']} duplicate, {stats['errors']} hata)"
+                f"✅ [{category}] Rapor: "
+                f"Çekilen: {stats['fetched']} -> "
+                f"Kaydedilen: {stats['saved']} "
+                f"(Veritabanında zaten olan: {stats['duplicates']})"
             )
 
             return stats
 
         except Exception as e:
-            logger.error(f"❌ [{category}] Hata: {e}")
+            logger.exception(f"❌ [{category}] Kritik Hata")
             stats["errors"] += 1
             return stats
 
@@ -107,8 +128,8 @@ class NewsService:
         start_time = datetime.now(tz)
 
         logger.info("=" * 60)
-        logger.info("🚀 TÜM KATEGORİLER GÜNCELLENİYOR")
-        logger.info(f"⏰ Başlangıç: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"🚀 TOPLU GÜNCELLEME BAŞLIYOR (Kaynak: {api_source})")
+        logger.info(f"⏰ Zaman: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info("=" * 60)
 
         total_stats = {
@@ -133,12 +154,11 @@ class NewsService:
         total_stats["duration_seconds"] = duration
 
         logger.info("=" * 60)
-        logger.info("🎉 GÜNCELLEME TAMAMLANDI!")
-        logger.info(f"📊 Toplam çekilen: {total_stats['totals']['fetched']}")
-        logger.info(f"💾 Kaydedilen: {total_stats['totals']['saved']}")
-        logger.info(f"🧹 Duplicate: {total_stats['totals']['duplicates']}")
-        logger.info(f"❌ Hatalar: {total_stats['totals']['errors']}")
-        logger.info(f"⏱️  Süre: {duration:.2f}s")
+        logger.info("🎉 GÜNCELLEME BİTTİ")
+        logger.info(f"📊 Toplam Çekilen: {total_stats['totals']['fetched']}")
+        logger.info(f"💾 Yeni Kaydedilen: {total_stats['totals']['saved']}")
+        logger.info(f"♻️  Zaten Var Olan: {total_stats['totals']['duplicates']}")
+        logger.info(f"⏱️  Süre: {duration:.2f} saniye")
         logger.info("=" * 60)
 
         return total_stats
@@ -152,17 +172,25 @@ class NewsService:
             logger.error(f"❌ Bilinmeyen slot: {slot_name}")
             return {}
 
-        logger.info(f"⏰ {slot_name.upper()} SLOT ({slot_config['time']})")
-        logger.info(f"🎯 API'ler: {slot_config['apis']}")
-
+        logger.info(f"⏰ CRON TETİKLENDİ: {slot_name.upper()} ({slot_config['time']})")
+        
         all_stats = []
-
+        
+        # Her kategori için, slotta tanımlı API'leri sırayla dener
         for category in Config.NEWS_CATEGORIES:
+            success = False
             for api in slot_config["apis"]:
+                logger.info(f"👉 Deneniyor: {api} -> {category}")
                 stats = NewsService.update_category(category, api_source=api)
-                if stats["saved"] > 0:
+                
+                # Eğer en az 1 haber çekildiyse (kaydedilmese bile, API çalıştı demektir)
+                if stats["fetched"] > 0:
                     all_stats.append(stats)
-                    break
+                    success = True
+                    break # Bu kategori için diğer API'ye geçme, başarılı oldu
+            
+            if not success:
+                logger.warning(f"⚠️ [{category}] Hiçbir API'den veri alınamadı.")
 
         return {
             "slot": slot_name,
@@ -176,15 +204,17 @@ class NewsService:
         tz = pytz.timezone(Config.TIMEZONE)
         start = datetime.now(tz)
 
-        logger.info("=" * 60)
-        logger.info("🧹 ESKİ HABERLER TEMİZLENİYOR")
-        logger.info("=" * 60)
+        logger.info("🧹 Eski haber temizliği başlatılıyor...")
 
         try:
             deleted = NewsModel.delete_expired()
             duration = (datetime.now(tz) - start).total_seconds()
 
-            logger.info(f"🗑️  Silinen: {deleted}")
+            if deleted > 0:
+                logger.info(f"🗑️  {deleted} adet süresi dolmuş haber silindi.")
+            else:
+                logger.info("✨ Silinecek eski haber yok.")
+                
             return {"deleted_count": deleted, "duration_seconds": duration}
 
         except Exception as e:
@@ -211,7 +241,9 @@ class NewsService:
                 "database": {
                     "total_news": total_news,
                     "latest_update": latest_update,
-                    "by_category": by_category
+                    "by_category": by_category,
+                    "scraped_count": NewsModel.count_scraped(),     # Dolu haberler
+                    "unscraped_count": NewsModel.count_unscraped()  # İşlenmeyi bekleyenler
                 },
                 "api_usage": get_all_usage(),
                 "api_summary": get_daily_summary()
