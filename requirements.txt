@@ -54,6 +54,8 @@ APScheduler==3.10.4
 # Web Scraping (Haber İçeriği)
 # -----------------------
 newspaper3k==0.2.8
+beautifulsoup4==4.12.2
+lxml==5.1.0
 lxml_html_clean==0.1.1
 
 # -----------------------
