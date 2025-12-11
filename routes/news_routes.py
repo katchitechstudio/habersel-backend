@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from models.news_models import NewsModel
 from services.news_service import NewsService
+from services.news_scraper import scrape_latest_news  # ✅ YENİ: İçerik doldurucu eklendi
 from datetime import datetime
 import pytz
 from config import Config
@@ -169,6 +170,10 @@ def last_update():
 
 @news_bp.route("/update", methods=["POST", "GET"])
 def update_news():
+    """
+    Bu endpoint API'lerden YENİ haberleri (başlık/resim) çeker ve veritabanına ekler.
+    İçerik doldurmaz (onu Scraper veya /force-fill yapar).
+    """
     try:
         stats = NewsService.update_all_categories(api_source="auto")
         
@@ -254,6 +259,51 @@ def get_unscraped():
         
     except Exception as e:
         logger.exception("❌ /unscraped hatası")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# 👇 YENİ EKLENEN ENDPOINT: İÇERİK DOLDURMA TETİKLEYİCİSİ 👇
+@news_bp.route("/force-fill", methods=["GET"])
+def force_fill_content_endpoint():
+    """
+    MANUEL TETİKLEME: Veritabanında başlığı olup içeriği boş olan haberleri
+    kaynak sitelerine gidip doldurur. Tarayıcıdan çağrılabilir.
+    """
+    try:
+        # 1. Kaç tane boş haber var bak
+        unscraped_count = NewsModel.count_unscraped()
+        
+        if unscraped_count == 0:
+            return jsonify({
+                "success": True,
+                "message": "Zaten tüm haberlerin içeriği dolu! İşlem yapılmadı.",
+                "filled_count": 0
+            })
+
+        # 2. Scraper'ı çalıştır (Timeout olmaması için max 50)
+        target = 50
+        scrape_latest_news(count=target)
+        
+        # 3. Sonuç
+        remaining = NewsModel.count_unscraped()
+        filled = unscraped_count - remaining
+        
+        # Eğer negatif çıkarsa (yeni haber geldiyse) 0 yap
+        if filled < 0: filled = 0 
+
+        return jsonify({
+            "success": True,
+            "message": "İçerik doldurma işlemi tamamlandı.",
+            "initial_empty": unscraped_count,
+            "filled_count": filled,
+            "remaining_empty": remaining
+        })
+
+    except Exception as e:
+        logger.exception("❌ /force-fill hatası")
         return jsonify({
             "success": False,
             "error": str(e)
