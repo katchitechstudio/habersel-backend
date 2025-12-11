@@ -1,263 +1,252 @@
-from newspaper import Article, Config as NewspaperConfig
-from models.news_models import NewsModel
-from utils.helpers import full_clean_news_pipeline
-import time
-import random
-import logging
-import threading
-import ssl
 import requests
 from bs4 import BeautifulSoup
+from newspaper import Article
+from models.news_models import NewsModel
+from utils.helpers import full_clean_news_pipeline, clean_news_title, clean_news_content
+from config import Config
+import logging
+import time
 import re
 
 logger = logging.getLogger(__name__)
 
-# 🔥 SSL HACK
-try:
-    _create_unverified_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
-else:
-    ssl._create_default_https_context = _create_unverified_https_context
 
-# 🥸 USER AGENT LİSTESİ
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-]
-
-def scrape_with_beautifulsoup(url: str) -> tuple:
-    """
-    BeautifulSoup ile manuel scraping (newspaper başarısız olursa)
-    """
-    try:
-        headers = {
-            'User-Agent': random.choice(USER_AGENTS),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-        }
+class NewsScraper:
+    
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        self.timeout = Config.API_TIMEOUT
+        self.max_retries = 3
+    
+    def scrape_article(self, url: str, title: str = None) -> dict:
+        if NewsModel.is_blacklisted(url):
+            logger.debug(f"⏭️  Blacklist'te: {url[:60]}...")
+            return {'success': False, 'error': 'blacklisted'}
         
-        response = requests.get(url, headers=headers, timeout=20, verify=False)
-        response.raise_for_status()
-        response.encoding = 'utf-8'
+        try:
+            result = self._scrape_with_newspaper(url)
+            
+            if result['success']:
+                cleaned = full_clean_news_pipeline(
+                    title=result.get('title', title or ''),
+                    content=result.get('content'),
+                    description=None,
+                    date=None
+                )
+                
+                return {
+                    'success': True,
+                    'title': cleaned['title'],
+                    'content': cleaned['content'],
+                    'image': result.get('image'),
+                    'error': None
+                }
+            
+            logger.debug(f"📰 newspaper başarısız, BeautifulSoup deneniyor: {url[:60]}...")
+            result = self._scrape_with_beautifulsoup(url)
+            
+            if result['success']:
+                cleaned = full_clean_news_pipeline(
+                    title=result.get('title', title or ''),
+                    content=result.get('content'),
+                    description=None,
+                    date=None
+                )
+                
+                return {
+                    'success': True,
+                    'title': cleaned['title'],
+                    'content': cleaned['content'],
+                    'image': result.get('image'),
+                    'error': None
+                }
+            
+            error_msg = result.get('error', 'unknown_error')
+            NewsModel.add_to_blacklist(url, reason=error_msg)
+            
+            return {
+                'success': False,
+                'error': error_msg
+            }
         
-        soup = BeautifulSoup(response.content, 'html.parser')
+        except Exception as e:
+            logger.error(f"❌ Scraping hatası ({url[:50]}): {e}")
+            NewsModel.add_to_blacklist(url, reason=str(e))
+            return {'success': False, 'error': str(e)}
+    
+    def _scrape_with_newspaper(self, url: str) -> dict:
+        try:
+            article = Article(url, language='tr')
+            article.download()
+            article.parse()
+            
+            content = article.text.strip()
+            
+            if not content or len(content) < 200:
+                return {'success': False, 'error': 'content_too_short'}
+            
+            return {
+                'success': True,
+                'title': article.title or '',
+                'content': content,
+                'image': article.top_image or None
+            }
         
-        # 🗑️ Gereksiz elementleri sil
-        for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 
-                        'iframe', 'noscript', 'button', 'form']):
-            tag.decompose()
+        except Exception as e:
+            logger.debug(f"⚠️  newspaper3k hatası: {e}")
+            return {'success': False, 'error': f'newspaper_error: {e}'}
+    
+    def _scrape_with_beautifulsoup(self, url: str) -> dict:
+        try:
+            response = self.session.get(url, timeout=self.timeout)
+            
+            if response.status_code != 200:
+                return {'success': False, 'error': f'http_{response.status_code}'}
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            title = None
+            for selector in ['h1', 'title', '.article-title', '.post-title']:
+                title_tag = soup.select_one(selector)
+                if title_tag:
+                    title = title_tag.get_text(strip=True)
+                    break
+            
+            content = self._extract_content_beautifulsoup(soup)
+            
+            image = None
+            img_tag = soup.select_one('meta[property="og:image"]')
+            if img_tag:
+                image = img_tag.get('content')
+            
+            if not content or len(content) < 200:
+                return {'success': False, 'error': 'content_too_short'}
+            
+            return {
+                'success': True,
+                'title': title or '',
+                'content': content,
+                'image': image
+            }
         
-        # 📰 İçerik alanını bul (yaygın selector'lar)
+        except Exception as e:
+            logger.debug(f"⚠️  BeautifulSoup hatası: {e}")
+            return {'success': False, 'error': f'beautifulsoup_error: {e}'}
+    
+    def _extract_content_beautifulsoup(self, soup: BeautifulSoup) -> str:
+        for element in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe']):
+            element.decompose()
+        
         content_selectors = [
             'article',
-            'div.article-content',
-            'div.post-content',
-            'div.entry-content',
-            'div.content',
-            'div.news-content',
-            'div.detail-content',
-            'div[itemprop="articleBody"]',
-            'div.story-body',
-            'div.article-body',
+            '.article-content',
+            '.post-content',
+            '.entry-content',
+            '.content',
             'main',
+            '[itemprop="articleBody"]'
         ]
         
-        content_element = None
         for selector in content_selectors:
-            content_element = soup.select_one(selector)
-            if content_element:
-                break
+            content_div = soup.select_one(selector)
+            if content_div:
+                paragraphs = content_div.find_all('p')
+                if paragraphs:
+                    text = '\n\n'.join([p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)])
+                    if len(text) > 200:
+                        return text
         
-        # Eğer özel selector bulamazsa tüm <p> tag'lerini topla
-        if not content_element:
-            content_element = soup
+        paragraphs = soup.find_all('p')
+        text = '\n\n'.join([p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)])
         
-        # 📝 Tüm paragrafları topla
-        paragraphs = []
-        for p in content_element.find_all(['p', 'h2', 'h3', 'blockquote']):
-            text = p.get_text(strip=True)
-            # En az 30 karakter olan paragrafları al
-            if len(text) >= 30:
-                paragraphs.append(text)
-        
-        full_text = '\n\n'.join(paragraphs)
-        
-        # 🖼️ Resim bul
-        image_url = None
-        img_selectors = [
-            'meta[property="og:image"]',
-            'article img',
-            'div.article-content img',
-            'div.post-content img',
-        ]
-        
-        for selector in img_selectors:
-            img_tag = soup.select_one(selector)
-            if img_tag:
-                image_url = img_tag.get('content') or img_tag.get('src')
-                if image_url:
-                    break
-        
-        logger.info(f"✅ BeautifulSoup ile çekildi: {len(full_text)} karakter")
-        return full_text, image_url
-        
-    except Exception as e:
-        logger.error(f"❌ BeautifulSoup scrape hatası: {e}")
-        return None, None
-
-
-def scrape_article_content(url: str):
-    """
-    🎯 ADVANCED SCRAPING: newspaper3k + BeautifulSoup kombinasyonu
-    """
-    try:
-        user_agent = random.choice(USER_AGENTS)
-        
-        # 1️⃣ Önce newspaper3k dene
-        config = NewspaperConfig()
-        config.browser_user_agent = user_agent
-        config.request_timeout = 20
-        config.fetch_images = True
-        config.memoize_articles = False
-        
-        article = Article(url, language='tr', config=config)
-        article.download()
-        article.parse()
-        
-        full_text = article.text.strip()
-        scraped_image = article.top_image if article.top_image else None
-        
-        # 2️⃣ İçerik çok kısaysa BeautifulSoup ile tekrar dene
-        if len(full_text) < 800:  # 800 karakterden az = EKSİK İÇERİK
-            logger.warning(f"⚠️ Newspaper kısa çekti ({len(full_text)} char), BeautifulSoup deneniyor...")
-            
-            bs_text, bs_image = scrape_with_beautifulsoup(url)
-            
-            # Hangisi daha uzunsa onu kullan
-            if bs_text and len(bs_text) > len(full_text):
-                logger.info(f"✅ BeautifulSoup daha iyi sonuç verdi: {len(bs_text)} > {len(full_text)}")
-                full_text = bs_text
-                if bs_image and not scraped_image:
-                    scraped_image = bs_image
-        
-        # 3️⃣ Hala çok kısaysa başarısız say
-        if len(full_text) < 300:
-            logger.warning(f"⚠️ İçerik hala çok kısa ({len(full_text)} char), başarısız sayılıyor")
-            return None, None
-        
-        logger.info(f"✅ BAŞARILI SCRAPE: {len(full_text)} karakter çekildi")
-        return full_text, scraped_image
-        
-    except Exception as e:
-        logger.error(f"❌ Scrape hatası ({url}): {e}")
-        return None, None
-
-
-def scrape_latest_news(count=15):
-    """
-    En son scrape edilmemiş haberleri çeker
-    """
-    logger.info(f"🔍 Scrape işlemi başlıyor (Hedef: {count})...")
+        return text
     
-    pending_articles = NewsModel.get_unscraped(limit=count, exclude_blacklist=True)
-    
-    if not pending_articles:
-        logger.info("✅ Scrape edilecek haber yok.")
-        return
-    
-    success = 0
-    failed = 0
-    
-    for idx, article in enumerate(pending_articles, 1):
-        try:
-            article_url = article['url']
+    def scrape_batch(self, limit: int = 10) -> dict:
+        stats = {
+            'total_attempted': 0,
+            'successful': 0,
+            'failed': 0,
+            'blacklisted': 0
+        }
+        
+        unscraped = NewsModel.get_unscraped(limit=limit, exclude_blacklist=True)
+        
+        if not unscraped:
+            logger.info("✨ Scrape edilecek haber kalmadı!")
+            return stats
+        
+        stats['total_attempted'] = len(unscraped)
+        logger.info(f"🚀 {len(unscraped)} haber scraping başlatılıyor...")
+        
+        for article in unscraped:
             article_id = article['id']
+            url = article['url']
+            title = article['title']
             
-            logger.info(f"🔄 [{idx}/{len(pending_articles)}] Scraping: {article['title'][:60]}...")
+            logger.info(f"📄 Scraping: {title[:50]}...")
             
-            # İçeriği scrape et
-            full_content, scraped_image = scrape_article_content(article_url)
+            result = self.scrape_article(url, title)
             
-            if full_content:
-                # Temizle
-                try:
-                    cleaned_data = full_clean_news_pipeline(
-                        title=article.get('title', ''),
-                        content=full_content,
-                        description=article.get('description'),
-                        date=article.get('published')
-                    )
-                    final_content = cleaned_data['content']
-                    
-                    # Temizleme sonrası kontrol
-                    if not final_content or len(final_content) < 200:
-                        logger.warning(f"⚠️ Temizleme sonrası içerik çok kısa: {article_id}")
-                        failed += 1
-                        NewsModel.add_to_blacklist(article_url, reason="content_too_short_after_cleaning")
-                        continue
-                        
-                except Exception as clean_err:
-                    logger.warning(f"⚠️ Temizleme hatası, ham içerik kullanılıyor: {clean_err}")
-                    final_content = full_content
-
-                final_image = scraped_image if scraped_image else article.get('image')
+            if result['success']:
+                cleaned_content = result['content']
+                cleaned_title = result['title'] or title
+                image = result.get('image') or article.get('image')
                 
-                # Kaydet
-                NewsModel.update_full_content(article_id, final_content, final_image)
-                logger.info(f"   ✅ Kaydedildi: {len(final_content)} karakter")
-                success += 1
+                NewsModel.update_full_content(article_id, cleaned_content, image)
+                NewsModel.update_title(article_id, cleaned_title)
+                
+                stats['successful'] += 1
+                logger.info(f"   ✅ Başarılı: {len(cleaned_content)} karakter (temizlendi)")
+            
             else:
-                failed += 1
-                NewsModel.add_to_blacklist(article_url, reason="empty_content")
-                logger.info(f"   ❌ Başarısız: İçerik çekilemedi")
+                stats['failed'] += 1
+                error = result.get('error', 'unknown')
+                
+                if error == 'blacklisted':
+                    stats['blacklisted'] += 1
+                
+                logger.warning(f"   ❌ Başarısız: {error}")
             
-            # Rate limiting
-            time.sleep(random.uniform(1.5, 3.0))
-            
-        except Exception as e:
-            failed += 1
-            logger.error(f"   ❌ Döngü Hatası: {e}")
-    
-    logger.info(f"🎉 Bitti! ✅ Başarılı: {success}, ❌ Başarısız: {failed}")
+            time.sleep(1)
+        
+        logger.info("=" * 60)
+        logger.info(f"🎉 SCRAPING BİTTİ")
+        logger.info(f"✅ Başarılı: {stats['successful']}")
+        logger.info(f"❌ Başarısız: {stats['failed']}")
+        logger.info(f"🚫 Blacklist: {stats['blacklisted']}")
+        logger.info("=" * 60)
+        
+        return stats
 
 
-def scrape_in_background(count=15):
-    """
-    Scraping işlemini arka planda başlatır
-    """
-    thread = threading.Thread(
-        target=scrape_latest_news,
-        args=(count,),
-        daemon=True
-    )
-    thread.start()
-    logger.info(f"🔥 Scraping arka planda başlatıldı ({count} haber)")
+def test_scraper():
+    scraper = NewsScraper()
+    
+    test_urls = [
+        "https://www.bbc.com/turkce",
+        "https://www.ntv.com.tr",
+    ]
+    
+    for url in test_urls:
+        print(f"\n{'='*60}")
+        print(f"Testing: {url}")
+        print('='*60)
+        
+        result = scraper.scrape_article(url)
+        
+        if result['success']:
+            print(f"✅ Başarılı!")
+            print(f"📝 Başlık: {result['title'][:80]}...")
+            print(f"📄 İçerik: {len(result['content'])} karakter")
+            print(f"🖼️  Resim: {result.get('image', 'Yok')}")
+            print(f"\n📰 İlk 300 karakter:")
+            print(result['content'][:300])
+        else:
+            print(f"❌ Başarısız: {result.get('error')}")
 
 
-# 🆕 MANUEL TEST FONKSİYONU
-def test_single_url(url: str):
-    """
-    Tek bir URL'i test et (debugging için)
-    
-    Kullanım:
-        from services.news_scraper import test_single_url
-        test_single_url("https://example.com/haber-linki")
-    """
-    print(f"\n🔍 Test ediliyor: {url}\n")
-    
-    content, image = scrape_article_content(url)
-    
-    if content:
-        print(f"✅ BAŞARILI!")
-        print(f"📏 Karakter sayısı: {len(content)}")
-        print(f"🖼️ Resim: {image}")
-        print(f"\n📰 İlk 500 karakter:\n{content[:500]}\n")
-        print(f"📰 Son 500 karakter:\n{content[-500:]}\n")
-    else:
-        print(f"❌ BAŞARISIZ - İçerik çekilemedi")
-    
-    return content, image
+if __name__ == "__main__":
+    test_scraper()
