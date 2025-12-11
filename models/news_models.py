@@ -18,6 +18,7 @@ class NewsModel:
         - Tabloları oluşturur
         - Eksik kolonları otomatik ekler
         - Index'leri otomatik oluşturur
+        - Timezone sorunlarını otomatik düzeltir
         - Mevcut verileri korur
         - SIFIR MANUEL MÜDAHALE GEREKTİRİR
         """
@@ -37,9 +38,9 @@ class NewsModel:
                     url TEXT NOT NULL,
                     image TEXT,
                     source VARCHAR(100),
-                    published TIMESTAMP,
-                    saved_at TIMESTAMP DEFAULT NOW(),
-                    expires_at TIMESTAMP NOT NULL,
+                    published TIMESTAMPTZ,
+                    saved_at TIMESTAMPTZ DEFAULT (NOW() AT TIME ZONE 'UTC'),
+                    expires_at TIMESTAMPTZ NOT NULL,
                     title_url_hash VARCHAR(64)
                 );
                 
@@ -48,12 +49,12 @@ class NewsModel:
                     url_hash VARCHAR(64) NOT NULL UNIQUE,
                     url TEXT NOT NULL,
                     fail_count INTEGER DEFAULT 1,
-                    last_attempt TIMESTAMP DEFAULT NOW(),
+                    last_attempt TIMESTAMPTZ DEFAULT (NOW() AT TIME ZONE 'UTC'),
                     reason TEXT
                 );
             """)
 
-            # 2️⃣ OTOMATIK MIGRATION - Eksik kolonları ekle
+            # 2️⃣ OTOMATIK MIGRATION - Eksik kolonları ekle ve TIMEZONE düzelt
             cur.execute("""
                 DO $$ 
                 BEGIN
@@ -80,8 +81,41 @@ class NewsModel:
                         SELECT 1 FROM information_schema.columns 
                         WHERE table_name='news' AND column_name='expires_at'
                     ) THEN
-                        ALTER TABLE news ADD COLUMN expires_at TIMESTAMP NOT NULL DEFAULT (NOW() + INTERVAL '7 days');
+                        ALTER TABLE news ADD COLUMN expires_at TIMESTAMPTZ NOT NULL DEFAULT ((NOW() AT TIME ZONE 'UTC') + INTERVAL '7 days');
                         RAISE NOTICE '✅ expires_at kolonu eklendi';
+                    END IF;
+                    
+                    -- 🆕 TIMEZONE FIX: saved_at'i TIMESTAMPTZ'ye çevir
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='news' 
+                        AND column_name='saved_at' 
+                        AND data_type='timestamp without time zone'
+                    ) THEN
+                        ALTER TABLE news ALTER COLUMN saved_at TYPE TIMESTAMPTZ USING saved_at AT TIME ZONE 'UTC';
+                        RAISE NOTICE '🔧 saved_at TIMESTAMPTZ olarak güncellendi';
+                    END IF;
+                    
+                    -- 🆕 TIMEZONE FIX: published'i TIMESTAMPTZ'ye çevir
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='news' 
+                        AND column_name='published' 
+                        AND data_type='timestamp without time zone'
+                    ) THEN
+                        ALTER TABLE news ALTER COLUMN published TYPE TIMESTAMPTZ USING published AT TIME ZONE 'UTC';
+                        RAISE NOTICE '🔧 published TIMESTAMPTZ olarak güncellendi';
+                    END IF;
+                    
+                    -- 🆕 TIMEZONE FIX: expires_at'i TIMESTAMPTZ'ye çevir
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='news' 
+                        AND column_name='expires_at' 
+                        AND data_type='timestamp without time zone'
+                    ) THEN
+                        ALTER TABLE news ALTER COLUMN expires_at TYPE TIMESTAMPTZ USING expires_at AT TIME ZONE 'UTC';
+                        RAISE NOTICE '🔧 expires_at TIMESTAMPTZ olarak güncellendi';
                     END IF;
                 END $$;
             """)
@@ -118,7 +152,7 @@ class NewsModel:
             """)
 
             conn.commit()
-            logger.info("✅ news tablosu hazır (otomatik migration tamamlandı)")
+            logger.info("✅ news tablosu hazır (otomatik migration + timezone fix tamamlandı)")
 
         except Exception as e:
             logger.error(f"❌ Tablo oluşturma hatası: {e}")
@@ -143,7 +177,9 @@ class NewsModel:
             conn = get_db()
             cur = conn.cursor()
 
-            expires = datetime.now(pytz.UTC) + timedelta(days=Config.NEWS_EXPIRATION_DAYS)
+            # 🆕 UTC timestamp - AÇIKÇA BELİRT
+            now_utc = datetime.now(pytz.UTC)
+            expires = now_utc + timedelta(days=Config.NEWS_EXPIRATION_DAYS)
 
             title = (article.get("title") or "").strip()
             description = (article.get("description") or "").strip()
@@ -170,9 +206,9 @@ class NewsModel:
                         else:
                             published = parsed
                     except:
-                        published = datetime.now(pytz.UTC)
+                        published = now_utc
             else:
-                published = datetime.now(pytz.UTC)
+                published = now_utc
 
             if not title or not url:
                 logger.warning("⚠️ Boş title veya url yüzünden haber atlandı")
@@ -180,12 +216,13 @@ class NewsModel:
 
             title_url_hash = NewsModel._generate_hash(title, url)
 
+            # 🆕 saved_at'i AÇIKÇA ekle
             cur.execute("""
                 INSERT INTO news (
                     category, title, description, url,
-                    image, source, published, expires_at, title_url_hash
+                    image, source, published, expires_at, title_url_hash, saved_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (title_url_hash) DO NOTHING
                 RETURNING id;
             """, (
@@ -197,7 +234,8 @@ class NewsModel:
                 api_source,
                 published,
                 expires,
-                title_url_hash
+                title_url_hash,
+                now_utc  # 🆕 EKLEDIK
             ))
 
             result = cur.fetchone()
@@ -468,7 +506,7 @@ class NewsModel:
 
             if exclude_blacklist:
                 query = """
-                    SELECT n.id, n.title, n.url, n.source, n.image
+                    SELECT n.id, n.title, n.url, n.source, n.image, n.published
                     FROM news n
                     WHERE (n.full_content IS NULL OR LENGTH(n.full_content) < 100)
                       AND n.expires_at > NOW()
@@ -481,7 +519,7 @@ class NewsModel:
                 """
             else:
                 query = """
-                    SELECT id, title, url, source, image
+                    SELECT id, title, url, source, image, published
                     FROM news
                     WHERE (full_content IS NULL OR LENGTH(full_content) < 100)
                       AND expires_at > NOW()
@@ -499,7 +537,8 @@ class NewsModel:
                     "title": r[1],
                     "url": r[2],
                     "source": r[3],
-                    "image": r[4]
+                    "image": r[4],
+                    "published": r[5].isoformat() if r[5] else None
                 })
             
             return articles
@@ -514,24 +553,27 @@ class NewsModel:
 
     @staticmethod
     def update_full_content(article_id: int, full_content: str, image_url: str = None):
-        """Haberin tam içeriğini günceller"""
+        """Haberin tam içeriğini günceller - 🆕 saved_at'i de günceller"""
         conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
             
+            # 🆕 saved_at'i UTC olarak güncelle
+            saved_at_utc = datetime.now(pytz.UTC)
+            
             if image_url:
                 cur.execute("""
                     UPDATE news
-                    SET full_content = %s, image = %s
+                    SET full_content = %s, image = %s, saved_at = %s
                     WHERE id = %s;
-                """, (full_content, image_url, article_id))
+                """, (full_content, image_url, saved_at_utc, article_id))
             else:
                 cur.execute("""
                     UPDATE news
-                    SET full_content = %s
+                    SET full_content = %s, saved_at = %s
                     WHERE id = %s;
-                """, (full_content, article_id))
+                """, (full_content, saved_at_utc, article_id))
             
             conn.commit()
             
