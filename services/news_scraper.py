@@ -1,6 +1,6 @@
-from newspaper import Article
+from newspaper import Article, Config as NewspaperConfig
 from models.news_models import NewsModel
-from utils.helpers import full_clean_news_pipeline  # 🆕 TEMİZLEME FONKSİYONU
+from utils.helpers import full_clean_news_pipeline
 import time
 import random
 import logging
@@ -8,6 +8,8 @@ import threading
 
 logger = logging.getLogger(__name__)
 
+# 🥸 KILIK DEĞİŞTİRME LİSTESİ (User-Agents)
+# Bu listeyle siteye "Ben Chrome'um", "Ben Firefox'um" diyeceğiz.
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -16,64 +18,54 @@ USER_AGENTS = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
 ]
 
-
 def scrape_article_content(url: str):
     """
-    Haber URL'sinden tam içeriği çeker
-    
-    Args:
-        url: Haber URL'si
-    
-    Returns:
-        tuple: (full_text, scraped_image)
+    Haber URL'sinden tam içeriği çeker (Gelişmiş Ayarlar ile)
     """
     try:
+        # Rastgele bir kimlik seç
         user_agent = random.choice(USER_AGENTS)
         
-        article = Article(url, language='tr')
-        article.config.browser_user_agent = user_agent
-        article.config.request_timeout = 15
+        # Newspaper kütüphanesini kandırmak için ayarlar
+        config = NewspaperConfig()
+        config.browser_user_agent = user_agent
+        config.request_timeout = 15 # 15 saniye bekle
+        config.fetch_images = True
         
+        article = Article(url, language='tr', config=config)
         article.download()
         article.parse()
         
         full_text = article.text.strip()
         
-        if len(full_text) < 100:
-            logger.warning(f"⚠️ Çok kısa içerik: {len(full_text)} karakter")
+        # Eğer metin çok kısaysa (mesela 200 karakterden az), muhtemelen hata vermiştir veya sadece özet çekmiştir.
+        if len(full_text) < 200:
+            logger.warning(f"⚠️ İçerik çok kısa ({len(full_text)} karakter), başarısız sayıldı: {url}")
             return None, None
         
         scraped_image = article.top_image if article.top_image else None
         
-        logger.debug(f"✅ {len(full_text)} karakter çekildi")
-        if scraped_image:
-            logger.debug(f"🖼️ Görsel bulundu: {scraped_image}")
-        
+        logger.debug(f"✅ Başarılı Scrape: {len(full_text)} karakter çekildi.")
         return full_text, scraped_image
         
     except Exception as e:
-        logger.error(f"❌ Scrape hatası: {e}")
+        logger.error(f"❌ Scrape hatası ({url}): {e}")
         return None, None
 
 
 def scrape_latest_news(count=15):
     """
     En son scrape edilmemiş haberleri çeker ve veritabanına kaydeder
-    
-    🆕 YENİ: İçerikleri temizleyerek kaydeder
-    
-    Args:
-        count: Çekilecek haber sayısı
     """
     logger.info(f"🔍 Scrape edilecek haberler aranıyor... (Hedef: {count})")
     
     pending_articles = NewsModel.get_unscraped(limit=count, exclude_blacklist=True)
     
     if not pending_articles:
-        logger.info("✅ Scrape edilecek haber yok")
+        logger.info("✅ Scrape edilecek haber yok (Hepsi dolu)")
         return
     
-    logger.info(f"📰 {len(pending_articles)} haber scrape edilecek...")
+    logger.info(f"📰 {len(pending_articles)} haber işleme alındı...")
     
     success = 0
     failed = 0
@@ -83,104 +75,60 @@ def scrape_latest_news(count=15):
             article_url = article['url']
             article_id = article['id']
             article_title = article.get('title', '')
-            article_date = article.get('published')
             
             # Blacklist kontrolü
             if NewsModel.is_blacklisted(article_url, threshold=3):
-                logger.debug(f"🚫 [{idx}/{len(pending_articles)}] Blacklist'te, atlanıyor: {article_title[:60]}...")
+                logger.debug(f"🚫 Blacklist, atlanıyor: {article_title[:30]}...")
                 failed += 1
                 continue
             
-            logger.info(f"🔄 [{idx}/{len(pending_articles)}] {article_title[:60]}...")
-            
-            # API'den gelen görsel
-            api_image = article.get('image')
+            logger.info(f"🔄 [{idx}/{len(pending_articles)}] İndiriliyor: {article_title[:40]}...")
             
             # İçeriği scrape et
             full_content, scraped_image = scrape_article_content(article_url)
             
             if full_content:
-                # 🆕 İÇERİĞİ TEMİZLE
-                logger.debug("🧹 İçerik temizleniyor...")
-                cleaned_data = full_clean_news_pipeline(
-                    title=article_title,
-                    content=full_content,
-                    description=article.get('description'),
-                    date=article_date
-                )
-                
-                # Temizlenmiş içerik
-                cleaned_content = cleaned_data['content']
-                cleaned_title = cleaned_data['title']
-                
-                # Görsel önceliği: Scraper > API
+                # İçeriği temizle (Gereksiz boşlukları vs at)
+                # Not: helper fonksiyonu yoksa düz metni kullanırız
+                try:
+                    cleaned_data = full_clean_news_pipeline(
+                        title=article_title,
+                        content=full_content,
+                        description=article.get('description'),
+                        date=article.get('published')
+                    )
+                    final_content = cleaned_data['content']
+                except:
+                    final_content = full_content
+
+                # Görsel seçimi
+                api_image = article.get('image')
                 final_image = scraped_image if scraped_image else api_image
                 
-                # Veritabanına kaydet (temizlenmiş içerikle)
+                # Veritabanına kaydet
                 NewsModel.update_full_content(
                     article_id, 
-                    cleaned_content,  # 🆕 Temizlenmiş içerik
+                    final_content, 
                     final_image
                 )
                 
-                # İsteğe bağlı: Başlığı da güncelle
-                if cleaned_title and cleaned_title != article_title:
-                    try:
-                        NewsModel.update_title(article_id, cleaned_title)
-                        logger.debug(f"📝 Başlık güncellendi")
-                    except:
-                        pass  # Başlık güncellemesi opsiyonel
-                
                 success += 1
-                
-                # İstatistikler
-                original_char_count = len(full_content)
-                cleaned_char_count = len(cleaned_content) if cleaned_content else 0
-                cleaned_word_count = len(cleaned_content.split()) if cleaned_content else 0
-                reduction_pct = round((1 - cleaned_char_count / original_char_count) * 100, 1) if original_char_count > 0 else 0
-                
-                if scraped_image:
-                    logger.info(f"   ✅ {cleaned_char_count} karakter (~{cleaned_word_count} kelime) [%{reduction_pct} temizlendi] (Scraper görseli)")
-                elif api_image:
-                    logger.info(f"   ✅ {cleaned_char_count} karakter (~{cleaned_word_count} kelime) [%{reduction_pct} temizlendi] (API görseli)")
-                else:
-                    logger.info(f"   ✅ {cleaned_char_count} karakter (~{cleaned_word_count} kelime) [%{reduction_pct} temizlendi] (görsel yok)")
+                logger.info(f"   ✅ KAYDEDİLDİ: {len(final_content)} karakter.")
             else:
                 failed += 1
-                NewsModel.add_to_blacklist(article_url, reason="content_extraction_failed")
-                logger.warning(f"   ⚠️ İçerik alınamadı")
+                NewsModel.add_to_blacklist(article_url, reason="content_empty")
+                logger.warning(f"   ⚠️ İçerik boş döndü, pas geçildi.")
             
-            # Rate limiting - Son haberde bekleme
-            if idx < len(pending_articles):
-                wait_time = random.randint(25, 35)
-                time.sleep(wait_time)
+            # ⏳ Site bizi engellemesin diye azıcık bekle (1-3 saniye)
+            time.sleep(random.uniform(1.0, 3.0))
             
         except Exception as e:
             failed += 1
-            NewsModel.add_to_blacklist(article['url'], reason=f"exception: {str(e)[:50]}")
-            logger.error(f"   ❌ Hata: {e}")
+            logger.error(f"   ❌ Kritik Hata: {e}")
     
-    logger.info(f"🎉 Scraping tamamlandı! Başarılı: {success}, Başarısız: {failed}")
-
-
-def scrape_all_pending_articles():
-    """
-    Tüm bekleyen haberleri scrape eder (varsayılan 20 adet)
-    """
-    scrape_latest_news(count=20)
-
+    logger.info(f"🎉 Scraping Turu Bitti! Başarılı: {success}, Başarısız: {failed}")
 
 def scrape_in_background(count=15):
-    """
-    Scraping işlemini arka planda başlatır
-    
-    Args:
-        count: Scrape edilecek haber sayısı
-    """
-    thread = threading.Thread(
-        target=scrape_latest_news,
-        args=(count,),
-        daemon=True
-    )
+    """Arka planda çalıştır"""
+    thread = threading.Thread(target=scrape_latest_news, args=(count,), daemon=True)
     thread.start()
-    logger.info(f"🔥 Scraping arka planda başlatıldı ({count} haber)")
