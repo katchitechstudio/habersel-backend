@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 def should_run_update(slot_name: str) -> bool:
-    """Slot'un çalışma zamanı olup olmadığını kontrol eder"""
     if slot_name not in Config.CRON_SCHEDULE:
         logger.warning(f"⚠️  Bilinmeyen slot: {slot_name}")
         return False
@@ -42,12 +41,6 @@ def should_run_update(slot_name: str) -> bool:
 
 
 def run_update(label: str, slot_name: str = None):
-    """
-    🎯 ANA GÜNCELLEME FONKSİYONU
-    
-    1. API'lerden yeni haberler çeker (başlık + özet + resim)
-    2. Scraping'i arka planda başlatır (tam içerik)
-    """
     if slot_name:
         if not should_run_update(slot_name):
             logger.info(f"⏸️  [{label}] Şu an çalışma zamanı değil, atlanıyor.")
@@ -64,7 +57,6 @@ def run_update(label: str, slot_name: str = None):
     logger.info("=" * 75)
     
     try:
-        # 1️⃣ API'lerden yeni haberler çek (başlık + özet)
         if slot_name and slot_name in Config.CRON_SCHEDULE:
             slot_config = Config.CRON_SCHEDULE[slot_name]
             scraping_count = slot_config.get("scraping_count", 15)
@@ -73,46 +65,57 @@ def run_update(label: str, slot_name: str = None):
             scraping_count = 20
             stats = NewsService.update_all_categories()
         
-        # 2️⃣ Scrape edilecek haber var mı kontrol et
+        total_saved = sum(v.get('saved', 0) for v in stats.values() if isinstance(v, dict))
+        
+        if total_saved == 0:
+            logger.warning(f"⚠️  API'lerden yeni haber gelmedi!")
+        else:
+            logger.info(f"✅ {total_saved} yeni haber API'lerden eklendi")
+        
         unscraped_count = NewsModel.count_unscraped()
         
         if unscraped_count > 0:
-            # Scraping gerekli
             logger.info(f"📊 Scrape bekleyen haber: {unscraped_count}")
             logger.info(f"🔥 Scraping arka planda başlatılıyor ({scraping_count} haber)...")
             scrape_in_background(count=scraping_count)
         else:
-            logger.info("✅ Tüm haberlerin içeriği zaten dolu, scraping atlandı")
+            logger.info("✅ Tüm haberlerin içeriği zaten dolu")
+            
+            total_news = NewsModel.get_total_count()
+            if total_news < 10:
+                logger.warning("⚠️  Database'de çok az haber var (<10), zorla güncelleme yapılıyor...")
+                stats = NewsService.update_all_categories()
+                logger.info("✅ Zorla güncelleme tamamlandı")
         
-        # 3️⃣ Sistem bilgilerini güncelle
         end_time_utc = datetime.now(pytz.UTC)
         duration = (end_time_utc - now_utc).total_seconds()
         
         SystemModel.set_last_update(end_time_utc)
-        logger.info(f"💾 last_update güncellendi → {end_time_utc.isoformat()} UTC")
         
         logger.info("=" * 75)
         logger.info(f"✅ [{label}] GÜNCELLEME TAMAMLANDI")
         logger.info(f"⏱️  Toplam Süre: {duration:.2f} saniye")
-        if unscraped_count > 0:
-            logger.info(f"🔄 Scraping arka planda devam ediyor...")
+        logger.info(f"📊 Yeni haber: {total_saved}, Scrape bekleyen: {unscraped_count}")
         logger.info("=" * 75 + "\n")
         
         return stats
         
     except Exception as e:
         logger.exception(f"❌ [{label}] HATA: {e}")
+        
+        try:
+            unscraped_count = NewsModel.count_unscraped()
+            if unscraped_count > 0:
+                logger.info(f"🔄 Hata olmasına rağmen scraping deneniyor...")
+                scrape_in_background(count=10)
+                logger.info("✅ Scraping başlatıldı")
+        except Exception as e2:
+            logger.exception(f"❌ Scraping de başarısız: {e2}")
+        
         raise
 
 
-# 🆕 YENİ: BAĞIMSIZ SCRAPING JOB'U
 def scraping_only_job(label: str = "SCRAPING", count: int = 20):
-    """
-    🔍 SADECE SCRAPING YAP
-    
-    Haber toplamadan, sadece mevcut boş içerikleri doldur.
-    Bu fonksiyon daha az sıklıkta çağrılabilir (günde 2-3 kez).
-    """
     now_utc = datetime.now(pytz.UTC)
     tz_tr = pytz.timezone(Config.TIMEZONE)
     now_tr = now_utc.astimezone(tz_tr)
@@ -124,7 +127,6 @@ def scraping_only_job(label: str = "SCRAPING", count: int = 20):
     logger.info("=" * 75)
     
     try:
-        # Kaç haber boş kontrol et
         unscraped_count = NewsModel.count_unscraped()
         
         if unscraped_count == 0:
@@ -135,10 +137,8 @@ def scraping_only_job(label: str = "SCRAPING", count: int = 20):
         logger.info(f"📊 Scrape bekleyen haber: {unscraped_count}")
         logger.info(f"🎯 Hedef: {count} haber scrape edilecek")
         
-        # Senkron scraping (logları görmek için)
         scrape_latest_news(count=count)
         
-        # Sonuç
         remaining = NewsModel.count_unscraped()
         filled = unscraped_count - remaining
         if filled < 0:
@@ -169,95 +169,67 @@ def scraping_only_job(label: str = "SCRAPING", count: int = 20):
         }
 
 
-# ============================================
-# HABER TOPLAMA JOB'LARI (Günde 12 kez)
-# ============================================
-
 def midnight_job():
-    """00:00 TR - Gece Yarısı"""
     return run_update("GECE 00:00", slot_name="midnight")
 
 
 def late_night_job():
-    """02:00 TR - Gece Geç"""
     return run_update("GECE 02:00", slot_name="late_night")
 
 
 def early_morning_job():
-    """04:00 TR - Sabah Erkeni"""
     return run_update("SABAH ERKENİ 04:00", slot_name="early_morning")
 
 
 def dawn_job():
-    """06:00 TR - Şafak"""
     return run_update("ŞAFAK 06:00", slot_name="dawn")
 
 
 def morning_job():
-    """08:00 TR - Sabah"""
     return run_update("SABAH 08:00", slot_name="morning")
 
 
 def mid_morning_job():
-    """10:00 TR - Kuşluk"""
     return run_update("KUŞLUK 10:00", slot_name="mid_morning")
 
 
 def noon_job():
-    """12:00 TR - Öğle"""
     return run_update("ÖĞLE 12:00", slot_name="noon")
 
 
 def afternoon_job():
-    """14:00 TR - İkindi"""
     return run_update("İKİNDİ 14:00", slot_name="afternoon")
 
 
 def late_afternoon_job():
-    """16:00 TR - İkindi Sonu"""
     return run_update("İKİNDİ SONU 16:00", slot_name="late_afternoon")
 
 
 def early_evening_job():
-    """18:00 TR - Akşam Başı"""
     return run_update("AKŞAM BAŞI 18:00", slot_name="early_evening")
 
 
 def evening_job():
-    """20:00 TR - Akşam"""
     return run_update("AKŞAM 20:00", slot_name="evening")
 
 
 def night_job():
-    """22:00 TR - Gece"""
     return run_update("GECE 22:00", slot_name="night")
 
 
-# ============================================
-# 🆕 SCRAPING-ONLY JOB'LARI (Günde 3 kez)
-# ============================================
-
 def morning_scraping_job():
-    """09:00 TR - Sabah Scraping (Yoğun)"""
     return scraping_only_job(label="SABAH SCRAPING", count=30)
 
 
 def afternoon_scraping_job():
-    """15:00 TR - Öğleden Sonra Scraping (Orta)"""
     return scraping_only_job(label="ÖĞLEDEN SONRA SCRAPING", count=20)
 
 
 def evening_scraping_job():
-    """21:00 TR - Akşam Scraping (Az)"""
     return scraping_only_job(label="AKŞAM SCRAPING", count=15)
 
 
-# ============================================
-# TEMİZLİK JOB'U (Günde 1 kez)
-# ============================================
-
 def cleanup_job():
-    """03:00 TR / 00:00 UTC - Eski Haberleri Sil"""
     now_utc = datetime.now(pytz.UTC)
     current_hour_utc = now_utc.hour
     
