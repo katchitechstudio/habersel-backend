@@ -17,10 +17,7 @@ from services.scheduler import (
     early_evening_job,
     evening_job,
     night_job,
-    cleanup_job,
-    morning_scraping_job,
-    afternoon_scraping_job,
-    evening_scraping_job
+    cleanup_job
 )
 from config import Config
 from services.init_db import init_database, verify_tables
@@ -110,17 +107,14 @@ def create_app():
             1: ("early_morning", early_morning_job, "04:00 TR"),
             3: ("dawn", dawn_job, "06:00 TR"),
             5: ("morning", morning_job, "08:00 TR"),
-            6: ("morning_scraping", morning_scraping_job, "09:00 TR - SCRAPING"),
             7: ("mid_morning", mid_morning_job, "10:00 TR"),
             9: ("noon", noon_job, "12:00 TR"),
             11: ("afternoon", afternoon_job, "14:00 TR"),
-            12: ("afternoon_scraping", afternoon_scraping_job, "15:00 TR - SCRAPING"),
             13: ("late_afternoon", late_afternoon_job, "16:00 TR"),
             15: ("early_evening", early_evening_job, "18:00 TR"),
             17: ("evening", evening_job, "20:00 TR"),
-            18: ("evening_scraping", evening_scraping_job, "21:00 TR - SCRAPING"),
             19: ("night", night_job, "22:00 TR"),
-            0: ("cleanup", cleanup_job, "03:00 TR - TEMİZLİK"),
+            0: ("cleanup", cleanup_job, "03:00 TR"),
         }
         
         if hour_utc in job_schedule:
