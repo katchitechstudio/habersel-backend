@@ -76,8 +76,9 @@ def run_update(label: str, slot_name: str = None):
         
         if unscraped_count > 0:
             logger.info(f"📊 Scrape bekleyen haber: {unscraped_count}")
-            logger.info(f"🔥 Scraping arka planda başlatılıyor ({scraping_count} haber)...")
-            scrape_in_background(count=scraping_count)
+            logger.info(f"🔥 HEMEN scraping başlatılıyor ({scraping_count} haber)...")
+            scrape_latest_news(count=scraping_count)
+            logger.info(f"✅ Scraping tamamlandı")
         else:
             logger.info("✅ Tüm haberlerin içeriği zaten dolu")
             
@@ -85,6 +86,9 @@ def run_update(label: str, slot_name: str = None):
             if total_news < 10:
                 logger.warning("⚠️  Database'de çok az haber var (<10), zorla güncelleme yapılıyor...")
                 stats = NewsService.update_all_categories()
+                unscraped_count = NewsModel.count_unscraped()
+                if unscraped_count > 0:
+                    scrape_latest_news(count=20)
                 logger.info("✅ Zorla güncelleme tamamlandı")
         
         end_time_utc = datetime.now(pytz.UTC)
@@ -92,10 +96,12 @@ def run_update(label: str, slot_name: str = None):
         
         SystemModel.set_last_update(end_time_utc)
         
+        final_unscraped = NewsModel.count_unscraped()
+        
         logger.info("=" * 75)
         logger.info(f"✅ [{label}] GÜNCELLEME TAMAMLANDI")
         logger.info(f"⏱️  Toplam Süre: {duration:.2f} saniye")
-        logger.info(f"📊 Yeni haber: {total_saved}, Scrape bekleyen: {unscraped_count}")
+        logger.info(f"📊 Yeni haber: {total_saved}, Kalan boş: {final_unscraped}")
         logger.info("=" * 75 + "\n")
         
         return stats
@@ -113,60 +119,6 @@ def run_update(label: str, slot_name: str = None):
             logger.exception(f"❌ Scraping de başarısız: {e2}")
         
         raise
-
-
-def scraping_only_job(label: str = "SCRAPING", count: int = 20):
-    now_utc = datetime.now(pytz.UTC)
-    tz_tr = pytz.timezone(Config.TIMEZONE)
-    now_tr = now_utc.astimezone(tz_tr)
-    
-    logger.info("\n" + "=" * 75)
-    logger.info(f"🔍 [{label}] İÇERİK SCRAPING İŞLEMİ")
-    logger.info(f"🕒 UTC: {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"🕒 TR:  {now_tr.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-    logger.info("=" * 75)
-    
-    try:
-        unscraped_count = NewsModel.count_unscraped()
-        
-        if unscraped_count == 0:
-            logger.info("✅ Scrape edilecek haber yok, işlem atlandı")
-            logger.info("=" * 75 + "\n")
-            return {"skipped": True, "reason": "no_unscraped"}
-        
-        logger.info(f"📊 Scrape bekleyen haber: {unscraped_count}")
-        logger.info(f"🎯 Hedef: {count} haber scrape edilecek")
-        
-        scrape_latest_news(count=count)
-        
-        remaining = NewsModel.count_unscraped()
-        filled = unscraped_count - remaining
-        if filled < 0:
-            filled = 0
-        
-        end_time_utc = datetime.now(pytz.UTC)
-        duration = (end_time_utc - now_utc).total_seconds()
-        
-        logger.info("=" * 75)
-        logger.info(f"✅ [{label}] SCRAPING TAMAMLANDI")
-        logger.info(f"📈 Dolduruldu: {filled} haber")
-        logger.info(f"📊 Kalan boş: {remaining} haber")
-        logger.info(f"⏱️  Süre: {duration:.2f} saniye")
-        logger.info("=" * 75 + "\n")
-        
-        return {
-            "success": True,
-            "filled": filled,
-            "remaining": remaining,
-            "duration": duration
-        }
-        
-    except Exception as e:
-        logger.exception(f"❌ [{label}] SCRAPING HATASI: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
 
 
 def midnight_job():
@@ -215,18 +167,6 @@ def evening_job():
 
 def night_job():
     return run_update("GECE 22:00", slot_name="night")
-
-
-def morning_scraping_job():
-    return scraping_only_job(label="SABAH SCRAPING", count=30)
-
-
-def afternoon_scraping_job():
-    return scraping_only_job(label="ÖĞLEDEN SONRA SCRAPING", count=20)
-
-
-def evening_scraping_job():
-    return scraping_only_job(label="AKŞAM SCRAPING", count=15)
 
 
 def cleanup_job():
