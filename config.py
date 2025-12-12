@@ -16,123 +16,130 @@ class Config:
     CURRENTS_API_KEY = os.getenv("CURRENTS_API_KEY", "")
     MEDIASTACK_KEY = os.getenv("MEDIASTACK_KEY", "")
     NEWSDATA_KEY = os.getenv("NEWSDATA_KEY", "")
+    NEWSAPI_AI_KEY = os.getenv("NEWSAPI_AI_KEY", "")
     
     API_LIMITS = {
+        "newsapi_ai": {
+            "monthly": 30000,
+            "daily": 1000,
+            "priority": 1
+        },
         "gnews": {
             "monthly": 3000,
             "daily": 100,
-            "priority": 1
+            "priority": 2
         },
         "currents": {
             "monthly": 600,
             "daily": 20,
-            "priority": 2
+            "priority": 3
+        },
+        "newsdata": {
+            "monthly": 6000,
+            "daily": 200,
+            "priority": 4
         },
         "mediastack": {
             "monthly": 100,
             "daily": 3,
-            "priority": 3
-        },
-        "newsdata": {
-            "monthly": 100,
-            "daily": 3,
-            "priority": 4
+            "priority": 5
         }
     }
     
     NEWS_EXPIRATION_DAYS = int(os.getenv("NEWS_EXPIRATION_DAYS", "3"))
     NEWS_CATEGORIES = ["general", "business", "technology", "world", "sports"]
     NEWS_PER_CATEGORY = {
+        "newsapi_ai": 5,
         "gnews": 5,
         "currents": 5,
-        "mediastack": 3,
-        "newsdata": 3
+        "newsdata": 3,
+        "mediastack": 3
     }
     
     CRON_SCHEDULE = {
         "midnight": {
             "time": "00:00",
             "hour": 0,
-            "apis": ["gnews"],
+            "apis": ["newsapi_ai"],
             "categories": ["general", "world"],
-            "scraping_count": 10
+            "scraping_count": 15
         },
         "late_night": {
             "time": "02:00",
             "hour": 2,
-            "apis": ["currents"],
-            "categories": ["sports", "general"],
-            "scraping_count": 10
+            "apis": ["newsapi_ai"],
+            "categories": ["business", "sports"],
+            "scraping_count": 15
         },
         "early_morning": {
             "time": "04:00",
             "hour": 4,
-            "apis": ["gnews"],
-            "categories": ["general", "business"],
-            "scraping_count": 10
+            "apis": ["newsapi_ai"],
+            "categories": ["technology", "general"],
+            "scraping_count": 15
         },
         "dawn": {
             "time": "06:00",
             "hour": 6,
-            "apis": ["currents"],
-            "categories": ["technology", "world"],
-            "scraping_count": 10
+            "apis": ["gnews"],
+            "categories": ["general", "business"],
+            "scraping_count": 15
         },
         "morning": {
             "time": "08:00",
             "hour": 8,
-            "apis": ["gnews", "currents"],
-            "categories": ["general", "business", "sports"],
-            "scraping_count": 15
+            "apis": ["newsapi_ai"],
+            "categories": ["world", "technology"],
+            "scraping_count": 20
         },
         "mid_morning": {
             "time": "10:00",
             "hour": 10,
-            "apis": ["mediastack"],
-            "categories": ["general"],
-            "scraping_count": 10
+            "apis": ["gnews"],
+            "categories": ["sports", "general"],
+            "scraping_count": 15
         },
         "noon": {
             "time": "12:00",
             "hour": 12,
-            "apis": ["gnews", "mediastack"],
-            "categories": ["business", "technology"],
-            "scraping_count": 15
+            "apis": ["newsapi_ai"],
+            "categories": ["business", "world"],
+            "scraping_count": 20
         },
         "afternoon": {
             "time": "14:00",
             "hour": 14,
             "apis": ["currents"],
-            "categories": ["sports", "general"],
-            "scraping_count": 10
+            "categories": ["technology", "sports"],
+            "scraping_count": 15
         },
         "late_afternoon": {
             "time": "16:00",
             "hour": 16,
-            "apis": ["gnews", "currents"],
-            "categories": ["world", "technology"],
-            "scraping_count": 15
+            "apis": ["newsapi_ai"],
+            "categories": ["general", "business"],
+            "scraping_count": 20
         },
         "early_evening": {
             "time": "18:00",
             "hour": 18,
-            "apis": ["mediastack"],
-            "categories": ["general"],
-            "scraping_count": 10
+            "apis": ["gnews"],
+            "categories": ["world", "sports"],
+            "scraping_count": 15
         },
         "evening": {
             "time": "20:00",
             "hour": 20,
             "apis": ["currents"],
-            "categories": ["general", "sports"],
+            "categories": ["general", "technology"],
             "scraping_count": 15
         },
         "night": {
             "time": "22:00",
             "hour": 22,
-            "apis": ["currents"],
-            "categories": ["world", "general"],
-            "scraping_count": 10
+            "apis": ["newsapi_ai"],
+            "categories": ["sports", "world"],
+            "scraping_count": 15
         }
     }
     
