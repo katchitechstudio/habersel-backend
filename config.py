@@ -19,24 +19,24 @@ class Config:
     NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
     
     API_LIMITS = {
-        "newsapi": {
-            "monthly": 30000,
-            "daily": 1000,
-            "priority": 1
-        },
         "gnews": {
             "monthly": 3000,
             "daily": 100,
-            "priority": 2
+            "priority": 1
         },
-        "currents": {
-            "monthly": 600,
-            "daily": 20,
-            "priority": 3
+        "newsapi": {
+            "monthly": 30000,
+            "daily": 1000,
+            "priority": 2
         },
         "newsdata": {
             "monthly": 6000,
             "daily": 200,
+            "priority": 3
+        },
+        "currents": {
+            "monthly": 600,
+            "daily": 20,
             "priority": 4
         },
         "mediastack": {
@@ -49,10 +49,10 @@ class Config:
     NEWS_EXPIRATION_DAYS = int(os.getenv("NEWS_EXPIRATION_DAYS", "3"))
     NEWS_CATEGORIES = ["general", "business", "technology", "world", "sports"]
     NEWS_PER_CATEGORY = {
-        "newsapi": 5,
         "gnews": 5,
-        "currents": 5,
+        "newsapi": 5,
         "newsdata": 3,
+        "currents": 5,
         "mediastack": 3
     }
     
@@ -60,84 +60,84 @@ class Config:
         "midnight": {
             "time": "00:00",
             "hour": 0,
-            "apis": ["newsapi"],
+            "apis": ["gnews", "newsdata"],
             "categories": ["general", "world"],
             "scraping_count": 15
         },
         "late_night": {
             "time": "02:00",
             "hour": 2,
-            "apis": ["newsapi"],
+            "apis": ["gnews", "newsapi"],
             "categories": ["business", "sports"],
             "scraping_count": 15
         },
         "early_morning": {
             "time": "04:00",
             "hour": 4,
-            "apis": ["newsapi"],
+            "apis": ["newsapi", "gnews"],
             "categories": ["technology", "general"],
             "scraping_count": 15
         },
         "dawn": {
             "time": "06:00",
             "hour": 6,
-            "apis": ["gnews"],
+            "apis": ["gnews", "newsdata"],
             "categories": ["general", "business"],
             "scraping_count": 15
         },
         "morning": {
             "time": "08:00",
             "hour": 8,
-            "apis": ["newsapi"],
+            "apis": ["newsapi", "gnews"],
             "categories": ["world", "technology"],
             "scraping_count": 20
         },
         "mid_morning": {
             "time": "10:00",
             "hour": 10,
-            "apis": ["gnews"],
+            "apis": ["gnews", "currents"],
             "categories": ["sports", "general"],
             "scraping_count": 15
         },
         "noon": {
             "time": "12:00",
             "hour": 12,
-            "apis": ["newsapi"],
+            "apis": ["newsapi", "gnews"],
             "categories": ["business", "world"],
             "scraping_count": 20
         },
         "afternoon": {
             "time": "14:00",
             "hour": 14,
-            "apis": ["currents"],
+            "apis": ["currents", "gnews"],
             "categories": ["technology", "sports"],
             "scraping_count": 15
         },
         "late_afternoon": {
             "time": "16:00",
             "hour": 16,
-            "apis": ["newsapi"],
+            "apis": ["newsapi", "newsdata"],
             "categories": ["general", "business"],
             "scraping_count": 20
         },
         "early_evening": {
             "time": "18:00",
             "hour": 18,
-            "apis": ["gnews"],
+            "apis": ["gnews", "currents"],
             "categories": ["world", "sports"],
             "scraping_count": 15
         },
         "evening": {
             "time": "20:00",
             "hour": 20,
-            "apis": ["currents"],
+            "apis": ["currents", "newsdata"],
             "categories": ["general", "technology"],
             "scraping_count": 15
         },
         "night": {
             "time": "22:00",
             "hour": 22,
-            "apis": ["newsapi"],
+            "apis": ["newsapi", "gnews"],
             "categories": ["sports", "world"],
             "scraping_count": 15
         }
