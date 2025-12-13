@@ -1,4 +1,5 @@
 from services.news_fetcher import (
+    fetch_newsapi,
     fetch_gnews,
     fetch_currents,
     fetch_mediastack,
@@ -41,6 +42,7 @@ class NewsService:
                 stats["api_used"] = "fallback_chain"
             else:
                 api_functions = {
+                    "newsapi": fetch_newsapi,
                     "gnews": fetch_gnews,
                     "currents": fetch_currents,
                     "mediastack": fetch_mediastack,
