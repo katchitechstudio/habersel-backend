@@ -16,10 +16,10 @@ class Config:
     CURRENTS_API_KEY = os.getenv("CURRENTS_API_KEY", "")
     MEDIASTACK_KEY = os.getenv("MEDIASTACK_KEY", "")
     NEWSDATA_KEY = os.getenv("NEWSDATA_KEY", "")
-    NEWSAPI_AI_KEY = os.getenv("NEWSAPI_AI_KEY", "")
+    NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
     
     API_LIMITS = {
-        "newsapi_ai": {
+        "newsapi": {
             "monthly": 30000,
             "daily": 1000,
             "priority": 1
@@ -49,7 +49,7 @@ class Config:
     NEWS_EXPIRATION_DAYS = int(os.getenv("NEWS_EXPIRATION_DAYS", "3"))
     NEWS_CATEGORIES = ["general", "business", "technology", "world", "sports"]
     NEWS_PER_CATEGORY = {
-        "newsapi_ai": 5,
+        "newsapi": 5,
         "gnews": 5,
         "currents": 5,
         "newsdata": 3,
@@ -60,21 +60,21 @@ class Config:
         "midnight": {
             "time": "00:00",
             "hour": 0,
-            "apis": ["newsapi_ai"],
+            "apis": ["newsapi"],
             "categories": ["general", "world"],
             "scraping_count": 15
         },
         "late_night": {
             "time": "02:00",
             "hour": 2,
-            "apis": ["newsapi_ai"],
+            "apis": ["newsapi"],
             "categories": ["business", "sports"],
             "scraping_count": 15
         },
         "early_morning": {
             "time": "04:00",
             "hour": 4,
-            "apis": ["newsapi_ai"],
+            "apis": ["newsapi"],
             "categories": ["technology", "general"],
             "scraping_count": 15
         },
@@ -88,7 +88,7 @@ class Config:
         "morning": {
             "time": "08:00",
             "hour": 8,
-            "apis": ["newsapi_ai"],
+            "apis": ["newsapi"],
             "categories": ["world", "technology"],
             "scraping_count": 20
         },
@@ -102,7 +102,7 @@ class Config:
         "noon": {
             "time": "12:00",
             "hour": 12,
-            "apis": ["newsapi_ai"],
+            "apis": ["newsapi"],
             "categories": ["business", "world"],
             "scraping_count": 20
         },
@@ -116,7 +116,7 @@ class Config:
         "late_afternoon": {
             "time": "16:00",
             "hour": 16,
-            "apis": ["newsapi_ai"],
+            "apis": ["newsapi"],
             "categories": ["general", "business"],
             "scraping_count": 20
         },
@@ -137,7 +137,7 @@ class Config:
         "night": {
             "time": "22:00",
             "hour": 22,
-            "apis": ["newsapi_ai"],
+            "apis": ["newsapi"],
             "categories": ["sports", "world"],
             "scraping_count": 15
         }
