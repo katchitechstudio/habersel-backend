@@ -7,13 +7,9 @@ from services.api_manager import can_call, register_call, get_next_available_api
 
 logger = logging.getLogger(__name__)
 
-# Desteklenen kategoriler
 CATEGORIES = Config.NEWS_CATEGORIES
 
 
-# ----------------------------------------------------
-# Güvenli GET isteği
-# ----------------------------------------------------
 def _safe_get(url: str, params: dict, api_name: str = "unknown") -> Optional[dict]:
     try:
         logger.debug(f"🌐 {api_name} → {url}")
@@ -50,9 +46,55 @@ def _safe_get(url: str, params: dict, api_name: str = "unknown") -> Optional[dic
         return None
 
 
-# ----------------------------------------------------
-# GNEWS API
-# ----------------------------------------------------
+def fetch_newsapi(category: str, limit: int = 5) -> List[Dict]:
+    api_name = "newsapi"
+
+    if not can_call(api_name, limit):
+        logger.warning(f"⚠️ limit dolu → {api_name}")
+        return []
+
+    category_map = {
+        "general": "general",
+        "business": "business",
+        "technology": "technology",
+        "world": "general",
+        "sports": "sports"
+    }
+
+    url = "https://newsapi.org/v2/top-headlines"
+    params = {
+        "country": "tr",
+        "category": category_map.get(category, "general"),
+        "pageSize": limit,
+        "apiKey": Config.NEWSAPI_KEY,
+    }
+
+    data = _safe_get(url, params, api_name)
+    if not data:
+        register_call(api_name, limit, False)
+        return []
+
+    articles = data.get("articles", [])
+    if not articles:
+        register_call(api_name, limit, False)
+        return []
+
+    register_call(api_name, min(limit, len(articles)), True)
+
+    return [
+        {
+            "title": (x.get("title") or "").strip(),
+            "description": (x.get("description") or "").strip(),
+            "url": (x.get("url") or "").strip(),
+            "image": x.get("urlToImage"),
+            "source": (x.get("source", {}) or {}).get("name", "NewsAPI"),
+            "publishedAt": x.get("publishedAt"),
+        }
+        for x in articles
+        if x.get("title") and x.get("url")
+    ]
+
+
 def fetch_gnews(category: str, limit: int = 5) -> List[Dict]:
     api_name = "gnews"
 
@@ -94,9 +136,6 @@ def fetch_gnews(category: str, limit: int = 5) -> List[Dict]:
     ]
 
 
-# ----------------------------------------------------
-# CURRENTS API
-# ----------------------------------------------------
 def fetch_currents(category: str, limit: int = 5) -> List[Dict]:
     api_name = "currents"
 
@@ -136,9 +175,6 @@ def fetch_currents(category: str, limit: int = 5) -> List[Dict]:
     ]
 
 
-# ----------------------------------------------------
-# MEDIASTACK API
-# ----------------------------------------------------
 def fetch_mediastack(category: str, limit: int = 3) -> List[Dict]:
     api_name = "mediastack"
 
@@ -180,9 +216,6 @@ def fetch_mediastack(category: str, limit: int = 3) -> List[Dict]:
     ]
 
 
-# ----------------------------------------------------
-# NEWSDATA API (Fallback)
-# ----------------------------------------------------
 def fetch_newsdata(category: str, limit: int = 3) -> List[Dict]:
     api_name = "newsdata"
 
@@ -223,14 +256,12 @@ def fetch_newsdata(category: str, limit: int = 3) -> List[Dict]:
     ]
 
 
-# ----------------------------------------------------
-# Akıllı API Seçici (Fallback Chain)
-# ----------------------------------------------------
 def get_news_from_best_source(category: str, exclude_apis: list = None) -> List[Dict]:
     if exclude_apis is None:
         exclude_apis = []
 
     api_funcs = {
+        "newsapi": fetch_newsapi,
         "gnews": fetch_gnews,
         "currents": fetch_currents,
         "mediastack": fetch_mediastack,
@@ -256,11 +287,9 @@ def get_news_from_best_source(category: str, exclude_apis: list = None) -> List[
     return news
 
 
-# ----------------------------------------------------
-# Tüm kategorileri belirli API ile çek
-# ----------------------------------------------------
 def fetch_all_categories(api_name: str) -> Dict[str, List[Dict]]:
     api_funcs = {
+        "newsapi": fetch_newsapi,
         "gnews": fetch_gnews,
         "currents": fetch_currents,
         "mediastack": fetch_mediastack,
