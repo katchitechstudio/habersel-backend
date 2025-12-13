@@ -53,18 +53,19 @@ def fetch_newsapi(category: str, limit: int = 5) -> List[Dict]:
         logger.warning(f"⚠️ limit dolu → {api_name}")
         return []
 
-    category_map = {
-        "general": "general",
-        "business": "business",
-        "technology": "technology",
-        "world": "general",
-        "sports": "sports"
+    category_keywords = {
+        "general": "Türkiye",
+        "business": "ekonomi OR iş dünyası OR şirket",
+        "technology": "teknoloji OR bilim OR yapay zeka",
+        "world": "dünya OR uluslararası",
+        "sports": "spor OR futbol OR basketbol"
     }
 
-    url = "https://newsapi.org/v2/top-headlines"
+    url = "https://newsapi.org/v2/everything"
     params = {
-        "country": "tr",
-        "category": category_map.get(category, "general"),
+        "q": category_keywords.get(category, "Türkiye"),
+        "language": "tr",
+        "sortBy": "publishedAt",
         "pageSize": limit,
         "apiKey": Config.NEWSAPI_KEY,
     }
@@ -184,8 +185,7 @@ def fetch_mediastack(category: str, limit: int = 3) -> List[Dict]:
     url = "http://api.mediastack.com/v1/news"
     params = {
         "access_key": Config.MEDIASTACK_KEY,
-        "categories": category,
-        "languages": "tr",
+        "countries": "tr",
         "limit": limit,
         "sort": "published_desc",
     }
@@ -225,7 +225,6 @@ def fetch_newsdata(category: str, limit: int = 3) -> List[Dict]:
     url = "https://newsdata.io/api/1/news"
     params = {
         "apikey": Config.NEWSDATA_KEY,
-        "category": category,
         "language": "tr",
         "size": limit,
     }
@@ -261,11 +260,11 @@ def get_news_from_best_source(category: str, exclude_apis: list = None) -> List[
         exclude_apis = []
 
     api_funcs = {
-        "newsapi": fetch_newsapi,
         "gnews": fetch_gnews,
+        "newsapi": fetch_newsapi,
         "currents": fetch_currents,
-        "mediastack": fetch_mediastack,
         "newsdata": fetch_newsdata,
+        "mediastack": fetch_mediastack,
     }
 
     next_api = get_next_available_api(exclude=exclude_apis)
@@ -289,11 +288,11 @@ def get_news_from_best_source(category: str, exclude_apis: list = None) -> List[
 
 def fetch_all_categories(api_name: str) -> Dict[str, List[Dict]]:
     api_funcs = {
-        "newsapi": fetch_newsapi,
         "gnews": fetch_gnews,
+        "newsapi": fetch_newsapi,
         "currents": fetch_currents,
-        "mediastack": fetch_mediastack,
         "newsdata": fetch_newsdata,
+        "mediastack": fetch_mediastack,
     }
 
     func = api_funcs.get(api_name)
