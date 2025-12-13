@@ -12,22 +12,11 @@ class NewsModel:
 
     @staticmethod
     def create_table():
-        """
-        🤖 TAMAMEN OTOMATIK VERİTABANI YÖNETİMİ
-        
-        - Tabloları oluşturur
-        - Eksik kolonları otomatik ekler
-        - Index'leri otomatik oluşturur
-        - Timezone sorunlarını otomatik düzeltir
-        - Mevcut verileri korur
-        - SIFIR MANUEL MÜDAHALE GEREKTİRİR
-        """
         conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
 
-            # 1️⃣ ANA TABLOLARI OLUŞTUR (varsa atla)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS news (
                     id SERIAL PRIMARY KEY,
@@ -55,11 +44,9 @@ class NewsModel:
                 );
             """)
 
-            # 2️⃣ OTOMATIK MIGRATION - Eksik kolonları ekle ve TIMEZONE düzelt
             cur.execute("""
                 DO $$ 
                 BEGIN
-                    -- full_content kontrolü
                     IF NOT EXISTS (
                         SELECT 1 FROM information_schema.columns 
                         WHERE table_name='news' AND column_name='full_content'
@@ -68,7 +55,6 @@ class NewsModel:
                         RAISE NOTICE '✅ full_content kolonu eklendi';
                     END IF;
                     
-                    -- title_url_hash kontrolü ve ekleme
                     IF NOT EXISTS (
                         SELECT 1 FROM information_schema.columns 
                         WHERE table_name='news' AND column_name='title_url_hash'
@@ -77,7 +63,6 @@ class NewsModel:
                         RAISE NOTICE '✅ title_url_hash kolonu eklendi';
                     END IF;
                     
-                    -- expires_at kontrolü
                     IF NOT EXISTS (
                         SELECT 1 FROM information_schema.columns 
                         WHERE table_name='news' AND column_name='expires_at'
@@ -86,7 +71,6 @@ class NewsModel:
                         RAISE NOTICE '✅ expires_at kolonu eklendi';
                     END IF;
 
-                    -- is_scraped kontrolü
                     IF NOT EXISTS (
                         SELECT 1 FROM information_schema.columns 
                         WHERE table_name='news' AND column_name='is_scraped'
@@ -95,7 +79,6 @@ class NewsModel:
                         RAISE NOTICE '✅ is_scraped kolonu eklendi';
                     END IF;
                     
-                    -- 🆕 TIMEZONE FIX: saved_at'i TIMESTAMPTZ'ye çevir
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns 
                         WHERE table_name='news' 
@@ -106,7 +89,6 @@ class NewsModel:
                         RAISE NOTICE '🔧 saved_at TIMESTAMPTZ olarak güncellendi';
                     END IF;
                     
-                    -- 🆕 TIMEZONE FIX: published'i TIMESTAMPTZ'ye çevir
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns 
                         WHERE table_name='news' 
@@ -117,7 +99,6 @@ class NewsModel:
                         RAISE NOTICE '🔧 published TIMESTAMPTZ olarak güncellendi';
                     END IF;
                     
-                    -- 🆕 TIMEZONE FIX: expires_at'i TIMESTAMPTZ'ye çevir
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns 
                         WHERE table_name='news' 
@@ -130,14 +111,12 @@ class NewsModel:
                 END $$;
             """)
 
-            # 3️⃣ MEVCUT VERİLER İÇİN HASH OLUŞTUR (yoksa)
             cur.execute("""
                 UPDATE news 
                 SET title_url_hash = MD5(LOWER(TRIM(title)) || url)
                 WHERE title_url_hash IS NULL;
             """)
 
-            # 4️⃣ INDEX'LERİ OLUŞTUR (varsa atla)
             cur.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_news_unique_hash 
                 ON news(title_url_hash);
@@ -153,8 +132,6 @@ class NewsModel:
                 
                 CREATE INDEX IF NOT EXISTS idx_news_published 
                 ON news(published DESC);
-                
-                -- ⚠️ full_content ÜZERİNE INDEX KALDIRILDI (çok büyük satır hatası veriyordu)
                 
                 CREATE INDEX IF NOT EXISTS idx_blacklist_hash 
                 ON scraping_blacklist(url_hash);
@@ -174,19 +151,16 @@ class NewsModel:
 
     @staticmethod
     def _generate_hash(title: str, url: str) -> str:
-        """Başlık ve URL'den benzersiz hash üretir"""
         combined = f"{title.lower().strip()}{url}"
         return hashlib.md5(combined.encode('utf-8')).hexdigest()
 
     @staticmethod
     def save_article(article: dict, category: str, api_source: str = "unknown") -> bool:
-        """Haberi veritabanına kaydeder (duplicate kontrolü ile)"""
         conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
 
-            # 🆕 UTC timestamp - AÇIKÇA BELİRT
             now_utc = datetime.now(pytz.UTC)
             expires = now_utc + timedelta(days=Config.NEWS_EXPIRATION_DAYS)
 
@@ -225,7 +199,6 @@ class NewsModel:
 
             title_url_hash = NewsModel._generate_hash(title, url)
 
-            # 🆕 saved_at'i AÇIKÇA ekle
             cur.execute("""
                 INSERT INTO news (
                     category, title, description, url,
@@ -244,7 +217,7 @@ class NewsModel:
                 published,
                 expires,
                 title_url_hash,
-                now_utc  # 🆕 EKLEDIK
+                now_utc
             ))
 
             result = cur.fetchone()
@@ -260,7 +233,10 @@ class NewsModel:
         except Exception as e:
             logger.error(f"❌ Haber kaydedilemedi: {e}")
             if conn:
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except:
+                    pass
             return False
         finally:
             if conn:
@@ -268,7 +244,6 @@ class NewsModel:
 
     @staticmethod
     def save_bulk(articles: list, category: str, api_source: str = "unknown"):
-        """Toplu haber kaydetme"""
         stats = {"saved": 0, "duplicates": 0, "errors": 0}
 
         for a in articles:
@@ -294,7 +269,6 @@ class NewsModel:
 
     @staticmethod
     def delete_expired():
-        """Süresi dolmuş haberleri siler"""
         conn = None
         try:
             conn = get_db()
@@ -321,7 +295,6 @@ class NewsModel:
 
     @staticmethod
     def get_news(category: str = None, limit: int = 50, offset: int = 0):
-        """Haberleri getirir (kategori filtreli veya tümü)"""
         conn = None
         try:
             conn = get_db()
@@ -377,7 +350,6 @@ class NewsModel:
 
     @staticmethod
     def get_scraped_only(category: str = None, limit: int = 50, offset: int = 0):
-        """Sadece scrape edilmiş haberleri getirir"""
         conn = None
         try:
             conn = get_db()
@@ -438,7 +410,6 @@ class NewsModel:
 
     @staticmethod
     def get_scraped_after(after_date: str, category: str = None, limit: int = 50):
-        """Belirli tarihten sonra scrape edilmiş haberleri getirir"""
         conn = None
         try:
             conn = get_db()
@@ -507,7 +478,6 @@ class NewsModel:
 
     @staticmethod
     def get_unscraped(limit: int = 15, exclude_blacklist: bool = True):
-        """Scrape edilmemiş haberleri getirir"""
         conn = None
         try:
             conn = get_db()
@@ -562,13 +532,11 @@ class NewsModel:
 
     @staticmethod
     def update_full_content(article_id: int, full_content: str, image_url: str = None):
-        """Haberin tam içeriğini günceller - 🆕 saved_at'i de günceller"""
         conn = None
         try:
             conn = get_db()
             cur = conn.cursor()
             
-            # 🆕 saved_at'i UTC olarak güncelle
             saved_at_utc = datetime.now(pytz.UTC)
             
             if image_url:
@@ -597,7 +565,6 @@ class NewsModel:
 
     @staticmethod
     def update_title(article_id: int, title: str):
-        """Haberin başlığını günceller (temizlenmiş başlık için)"""
         conn = None
         try:
             conn = get_db()
@@ -622,7 +589,6 @@ class NewsModel:
 
     @staticmethod
     def add_to_blacklist(url: str, reason: str = "scraping_failed"):
-        """URL'yi blacklist'e ekler"""
         conn = None
         try:
             conn = get_db()
@@ -660,7 +626,6 @@ class NewsModel:
 
     @staticmethod
     def is_blacklisted(url: str, threshold: int = 3) -> bool:
-        """URL'nin blacklist'te olup olmadığını kontrol eder"""
         conn = None
         try:
             conn = get_db()
@@ -689,7 +654,6 @@ class NewsModel:
 
     @staticmethod
     def get_blacklist_count() -> int:
-        """Blacklist'teki URL sayısını döndürür"""
         conn = None
         try:
             conn = get_db()
@@ -710,7 +674,6 @@ class NewsModel:
 
     @staticmethod
     def count_by_category(category: str):
-        """Kategoriye göre haber sayısını döndürür"""
         conn = None
         try:
             conn = get_db()
@@ -734,7 +697,6 @@ class NewsModel:
 
     @staticmethod
     def get_total_count():
-        """Toplam haber sayısını döndürür"""
         conn = None
         try:
             conn = get_db()
@@ -754,7 +716,6 @@ class NewsModel:
 
     @staticmethod
     def get_latest_update_time():
-        """En son güncelleme zamanını döndürür"""
         conn = None
         try:
             conn = get_db()
@@ -777,7 +738,6 @@ class NewsModel:
 
     @staticmethod
     def count_scraped():
-        """Scrape edilmiş haber sayısını döndürür"""
         conn = None
         try:
             conn = get_db()
@@ -803,7 +763,6 @@ class NewsModel:
 
     @staticmethod
     def count_unscraped():
-        """Scrape edilmemiş haber sayısını döndürür"""
         conn = None
         try:
             conn = get_db()
